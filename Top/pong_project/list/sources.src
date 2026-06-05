@@ -1,0 +1,22 @@
+# =============================================================================
+# Fuentes HDL — Pong sobre MicroBlaze V
+# Rutas relativas a la raiz del repositorio
+# =============================================================================
+
+# --- Subsistema VGA (reutilizado del Proyecto 1) ---
+# Descomentar cuando los archivos sean copiados a src/hdl/
+# src/hdl/div_frec.v
+# src/hdl/debounce.v
+# src/hdl/sync_signal.v
+# src/hdl/mux2.v
+# src/hdl/vga_controller.v
+# src/hdl/bram_dualport.v
+# src/hdl/pixel_mux.v
+# src/hdl/vram_writer.v
+
+# --- Block Design MicroBlaze V SoC ---
+BD/microblaze_v.bd
+
+# --- HDL del juego (agregar conforme se desarrolle) ---
+# src/hdl/top_pong.v
+# src/hdl/pong_game.v
