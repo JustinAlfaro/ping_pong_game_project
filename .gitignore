@@ -1,0 +1,63 @@
+### Hog .gitignore ###
+# IP: solo se versiona el .xci, no los archivos generados
+IP/*/*
+!IP/*/*.xci*
+
+# BD: solo se versiona el .bd
+BD/*
+!BD/*.bd
+
+## Sistema operativo
+.DS_Store
+.DS_Store?
+.Trashes
+**.Trashes
+ehthumbs.db
+Thumbs.db
+
+## Miscelanea
+**.tmp
+!/.gitignore
+bin
+gitk
+*~
+**.pyc
+Doc/*
+**.log
+DCPs/
+
+## Xilinx Vivado — proyectos generados por HoG
+**.str
+**.jou
+.Xil/
+.Xilinx/
+Projects/
+output/
+lastbuilt.txt
+SimulationLib/
+VivadoProject
+
+# Proyecto Vivado existente (regenerado por HoG en Projects/, no versionar)
+/pong_project/
+
+## ModelSim / simulacion
+transcript*
+work/
+.cxl*
+_*
+_Alert.txt
+_Log.txt
+_info
+**.bak
+**.mti
+**.mtp
+**.mpf
+**.wlf
+**.ini
+
+## Python
+__pycache__/
+*.py[cod]
+
+## Claude Code
+.claude/settings.local.json
