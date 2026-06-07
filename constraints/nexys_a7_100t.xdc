@@ -84,6 +84,12 @@ set_property -dict { PACKAGE_PIN B11 IOSTANDARD LVCMOS33 } [get_ports { VGA_HS }
 set_property -dict { PACKAGE_PIN B12 IOSTANDARD LVCMOS33 } [get_ports { VGA_VS }]
 
 ## -----------------------------------------------------------------------------
+## UART — USB-UART integrado (mismo cable USB de programacion)
+## -----------------------------------------------------------------------------
+set_property -dict { PACKAGE_PIN C4  IOSTANDARD LVCMOS33 } [get_ports { UART_TXD_IN }]
+set_property -dict { PACKAGE_PIN D4  IOSTANDARD LVCMOS33 } [get_ports { UART_RXD_OUT }]
+
+## -----------------------------------------------------------------------------
 ## DDR2 — administrado por MIG 7 Series IP (pines incluidos en el BD)
 ## Los pines DDR2 se restringen automaticamente por el IP core MIG.
 ## No agregar constraints manuales para DDR2 aqui.
