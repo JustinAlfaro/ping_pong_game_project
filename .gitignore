@@ -3,9 +3,13 @@
 IP/*/*
 !IP/*/*.xci*
 
-# BD: solo se versiona el .bd
+# BD: se versiona el .bd + XCI de IPs + archivos de configuración (.prj para MIG)
 BD/*
 !BD/*.bd
+!BD/ip/
+BD/ip/*/*
+!BD/ip/*/*.xci
+!BD/ip/*/*.prj
 
 ## Sistema operativo
 .DS_Store
