@@ -1,7 +1,7 @@
 {
   "design": {
     "design_info": {
-      "boundary_crc": "0x55C00A8A77D53C2D",
+      "boundary_crc": "0x55C00A8AE143784D",
       "device": "xc7a100tcsg324-1",
       "gen_directory": "../../../../pong_project.gen/sources_1/bd/microblaze_v",
       "name": "microblaze_v",
@@ -2007,8 +2007,8 @@
       "mdm_1_debug_sys_rst": {
         "ports": [
           "mdm_1/Debug_SYS_Rst",
-          "rst_clk_wiz_1_100M/mb_debug_sys_rst",
-          "clk_wiz_1/reset"
+          "clk_wiz_1/reset",
+          "rst_clk_wiz_1_100M/mb_debug_sys_rst"
         ]
       },
       "microblaze_riscv_0_Clk": {
@@ -2021,18 +2021,18 @@
           "microblaze_riscv_0_axi_intc/s_axi_aclk",
           "microblaze_riscv_0_axi_intc/processor_clk",
           "microblaze_riscv_0_local_memory/LMB_Clk",
-          "rst_clk_wiz_1_100M/slowest_sync_clk",
+          "microblaze_riscv_0_axi_periph/M02_ACLK",
+          "microblaze_riscv_0_axi_periph/M03_ACLK",
+          "microblaze_riscv_0_axi_periph/M04_ACLK",
+          "microblaze_riscv_0_axi_periph/M05_ACLK",
+          "axi_gpio_0/s_axi_aclk",
+          "axi_gpio_1/s_axi_aclk",
+          "axi_quad_spi_0/ext_spi_clk",
+          "axi_quad_spi_0/s_axi_aclk",
+          "axi_uartlite_0/s_axi_aclk",
           "mig_7series_0/clk_ref_i",
           "mig_7series_0/sys_clk_i",
-          "axi_gpio_0/s_axi_aclk",
-          "microblaze_riscv_0_axi_periph/M02_ACLK",
-          "axi_gpio_1/s_axi_aclk",
-          "microblaze_riscv_0_axi_periph/M03_ACLK",
-          "axi_uartlite_0/s_axi_aclk",
-          "microblaze_riscv_0_axi_periph/M04_ACLK",
-          "axi_quad_spi_0/s_axi_aclk",
-          "microblaze_riscv_0_axi_periph/M05_ACLK",
-          "axi_quad_spi_0/ext_spi_clk"
+          "rst_clk_wiz_1_100M/slowest_sync_clk"
         ]
       },
       "microblaze_riscv_0_intr": {
@@ -2057,9 +2057,9 @@
         "ports": [
           "mig_7series_0/ui_clk",
           "microblaze_riscv_0_axi_periph/M01_ACLK",
-          "rst_mig_7series_0_83M/slowest_sync_clk",
           "microblaze_riscv_0_axi_periph/M06_ACLK",
-          "axi_bram_ctrl_0/s_axi_aclk"
+          "axi_bram_ctrl_0/s_axi_aclk",
+          "rst_mig_7series_0_83M/slowest_sync_clk"
         ]
       },
       "mig_7series_0_ui_clk_sync_rst": {
@@ -2100,23 +2100,23 @@
           "microblaze_riscv_0_axi_periph/S00_ARESETN",
           "microblaze_riscv_0_axi_periph/M00_ARESETN",
           "microblaze_riscv_0_axi_intc/s_axi_aresetn",
-          "axi_gpio_0/s_axi_aresetn",
           "microblaze_riscv_0_axi_periph/M02_ARESETN",
-          "axi_gpio_1/s_axi_aresetn",
           "microblaze_riscv_0_axi_periph/M03_ARESETN",
-          "axi_uartlite_0/s_axi_aresetn",
           "microblaze_riscv_0_axi_periph/M04_ARESETN",
+          "microblaze_riscv_0_axi_periph/M05_ARESETN",
+          "axi_gpio_0/s_axi_aresetn",
+          "axi_gpio_1/s_axi_aresetn",
           "axi_quad_spi_0/s_axi_aresetn",
-          "microblaze_riscv_0_axi_periph/M05_ARESETN"
+          "axi_uartlite_0/s_axi_aresetn"
         ]
       },
       "rst_mig_7series_0_83M_peripheral_aresetn": {
         "ports": [
           "rst_mig_7series_0_83M/peripheral_aresetn",
-          "mig_7series_0/aresetn",
           "microblaze_riscv_0_axi_periph/M01_ARESETN",
           "microblaze_riscv_0_axi_periph/M06_ARESETN",
-          "axi_bram_ctrl_0/s_axi_aresetn"
+          "axi_bram_ctrl_0/s_axi_aresetn",
+          "mig_7series_0/aresetn"
         ]
       }
     },
