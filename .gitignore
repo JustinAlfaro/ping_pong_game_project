@@ -63,5 +63,10 @@ _info
 __pycache__/
 *.py[cod]
 
+## Vivado — archivos generados adicionales
+**.pb
+**.xdc.ucf
+xvlog.pb
+
 ## Claude Code
 .claude/settings.local.json

@@ -17,5 +17,5 @@ src/hdl/pixel_mux.v
 BD/microblaze_v.bd
 
 # --- Top-level y lógica del juego ---
-src/hdl/top_pong_project.v
+src/hdl/top_pong_project.v top=top_pong_project
 # src/hdl/pong_game.v
