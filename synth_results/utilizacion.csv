@@ -1,0 +1,5 @@
+recurso,usado,disponible,util_pct
+Slice LUTs,108,63400,0.17
+Slice Registers,70,126800,0.06
+Block RAM Tile,0,135,0.00
+DSPs,0,240,0.00
