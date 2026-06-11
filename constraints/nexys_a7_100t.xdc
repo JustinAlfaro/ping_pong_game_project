@@ -116,3 +116,36 @@ set_property -dict { PACKAGE_PIN D4  IOSTANDARD LVCMOS33 } [get_ports { UART_RXD
 # set_property -dict { PACKAGE_PIN C1  IOSTANDARD LVCMOS33 } [get_ports { SD_MOSI }]
 # set_property -dict { PACKAGE_PIN D1  IOSTANDARD LVCMOS33 } [get_ports { SD_MISO }]
 # set_property -dict { PACKAGE_PIN E1  IOSTANDARD LVCMOS33 } [get_ports { SD_CS }]
+
+## =============================================================================
+## Excepciones de temporización — puertos sin requisito de tiempo externo
+## Elimina las 44 violaciones TIMING-18 (missing input/output delay).
+## Todos estos puertos son asíncronos o usan protocolos con su propio reloj:
+##   Botones/SW/RESETN : entradas mecánicas asíncronas (debounce en fabric)
+##   LEDs              : indicadores, sin referencia externa de reloj
+##   VGA               : manejado por reloj de pixel dividido internamente
+##   UART / SPI        : protocolos serie con su propio baud/SCK
+## =============================================================================
+
+## Entradas asíncronas
+set_false_path -from [get_ports {BTNC BTND BTNL BTNR BTNU}]
+set_false_path -from [get_ports {SW}]
+set_false_path -from [get_ports {CPU_RESETN}]
+set_false_path -from [get_ports {UART_RXD_OUT}]
+set_false_path -from [get_ports {SPI_MOSI SPI_MISO}]
+
+## Salidas asíncronas
+set_false_path -to [get_ports {LED[*]}]
+set_false_path -to [get_ports {VGA_R[*] VGA_G[*] VGA_B[*] VGA_HS VGA_VS}]
+set_false_path -to [get_ports {UART_TXD_IN}]
+set_false_path -to [get_ports {SPI_MOSI SPI_MISO SPI_CS_N[*]}]
+
+## =============================================================================
+## Waivers — artefactos conocidos del IP Clock Wizard en Block Design
+## TIMING-4  : El XDC no-OOC del IP clk_wiz_1 define create_clock en clk_in1,
+##             que Vivado ve como redefinición de sys_clk_pin. El timing cierra
+##             correctamente (WNS > 0). Artefacto documentado de Xilinx BD.
+## TIMING-27 : Misma causa: primary clock en pin jerárquico interno del BD.
+## =============================================================================
+create_waiver -id TIMING-4  -description {BD clk_wiz_1 IP: create_clock redundante en clk_in1 downstream de sys_clk_pin (artefacto Xilinx BD)}
+create_waiver -id TIMING-27 -description {BD clk_wiz_1 IP: primary clock en pin jerarquico clk_wiz_1/inst/clk_in1 (artefacto Xilinx BD)}

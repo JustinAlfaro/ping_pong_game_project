@@ -25,7 +25,7 @@ module debounce #(
     localparam integer COUNT_MAX = (CLK_FREQ_HZ / 1000) * DEBOUNCE_MS - 1;
     localparam integer CNT_BITS  = $clog2(COUNT_MAX + 1);
 
-    reg [1:0] sync_ff;
+    (* ASYNC_REG = "TRUE" *) reg [1:0] sync_ff;
     wire      btn_sync = sync_ff[1];
 
     always @(posedge clk) begin
