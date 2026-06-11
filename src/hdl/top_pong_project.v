@@ -223,77 +223,178 @@ vga_controller u_vga_ctrl (
 reg [9:0] gs_ball_x, gs_ball_y;
 reg [9:0] gs_pad1_y, gs_pad2_y;
 reg [7:0] gs_score1, gs_score2;
+reg [1:0] gs_game_state;   // 0=menu 1=playing 2=pause 3=gameover
+reg [1:0] gs_selected;     // opción seleccionada en menú/pausa; ganador en gameover
 
-reg [1:0] bram_rd_state;
+reg [2:0] bram_rd_state;
 
+// Mapa BRAM (word addr):
+//   0: {6'b0, ball_y[9:0], 6'b0, ball_x[9:0]}
+//   1: {6'b0, pad2_y[9:0], 6'b0, pad1_y[9:0]}
+//   2: {16'b0, score2[7:0], score1[7:0]}
+//   3: {28'b0, selected[1:0], game_state[1:0]}
 always @(posedge CLK100MHZ) begin
     if (!CPU_RESETN) begin
-        bram_rd_state <= 2'd0;
-        gs_ball_x     <= 10'd316;
-        gs_ball_y     <= 10'd236;
-        gs_pad1_y     <= 10'd210;
-        gs_pad2_y     <= 10'd210;
-        gs_score1     <= 8'd0;
-        gs_score2     <= 8'd0;
+        bram_rd_state  <= 3'd0;
+        gs_ball_x      <= 10'd316; gs_ball_y  <= 10'd236;
+        gs_pad1_y      <= 10'd210; gs_pad2_y  <= 10'd210;
+        gs_score1      <= 8'd0;    gs_score2  <= 8'd0;
+        gs_game_state  <= 2'd0;    gs_selected <= 2'd0;
     end else if (v_count >= 10'd480) begin
-        // Durante vblank: leer 3 palabras secuenciales de BRAM.
-        // La BRAM tiene latencia de 1 ciclo: en el estado N se presenta addr N,
-        // en el estado N+1 llega el dato de addr N y se presenta addr N+1.
         case (bram_rd_state)
-            2'd0: bram_rd_state <= 2'd1;            // setup addr 0, esperar dato
-            2'd1: begin                              // capturar word 0 (pelota)
+            3'd0: bram_rd_state <= 3'd1;
+            3'd1: begin
                 gs_ball_x     <= vram_portb_dout[9:0];
                 gs_ball_y     <= vram_portb_dout[25:16];
-                bram_rd_state <= 2'd2;
+                bram_rd_state <= 3'd2;
             end
-            2'd2: begin                              // capturar word 1 (paletas)
+            3'd2: begin
                 gs_pad1_y     <= vram_portb_dout[9:0];
                 gs_pad2_y     <= vram_portb_dout[25:16];
-                bram_rd_state <= 2'd3;
+                bram_rd_state <= 3'd3;
             end
-            2'd3: begin                              // capturar word 2 (marcador)
+            3'd3: begin
                 gs_score1     <= vram_portb_dout[7:0];
                 gs_score2     <= vram_portb_dout[15:8];
-                // permanecer en estado 3 hasta fin de vblank
+                bram_rd_state <= 3'd4;
             end
+            3'd4: begin
+                gs_game_state <= vram_portb_dout[1:0];
+                gs_selected   <= vram_portb_dout[3:2];
+            end
+            default: bram_rd_state <= 3'd0;
         endcase
     end else begin
-        bram_rd_state <= 2'd0;  // resetear FSM al inicio del frame activo
+        bram_rd_state <= 3'd0;
     end
 end
 
-// Port B: solo lectura. bram_rd_state indexa la palabra a leer.
 assign vram_portb_clk  = CLK100MHZ;
-assign vram_portb_addr = {30'b0, bram_rd_state};  // word address 0/1/2/3
+assign vram_portb_addr = {29'b0, bram_rd_state};
 assign vram_portb_din  = 32'h0;
 assign vram_portb_en   = (v_count >= 10'd480);
 assign vram_portb_rst  = ~CPU_RESETN;
 assign vram_portb_we   = 4'b0;
 
 // -----------------------------------------------------------------------------
-// Renderizado procedural — color determinado por geometría en tiempo real
-// No hay framebuffer: cada pixel se calcula combinacionalmente desde h_count/v_count.
-// En este modo no hay latencia de BRAM por pixel, por lo que blank no necesita delay.
+// Renderizado procedural — geometría calculada combinacionalmente cada pixel.
+// El firmware escribe 4 palabras de estado en BRAM; la FSM las captura en vblank.
+//
+// Pantallas (gs_game_state):
+//   0 = menú principal  (1P / 2P)
+//   1 = jugando         (pelota, paletas, red, marcador)
+//   2 = pausa           (Reanudar / Salir) + juego difuminado de fondo
+//   3 = gameover        (barra verde=ganaste / roja=perdiste)
 // -----------------------------------------------------------------------------
+
+// --- Juego ---
 localparam BALL_SIZE = 10'd8;
 localparam PAD_W     = 10'd8;
 localparam PAD_H     = 10'd60;
 localparam PAD1_X    = 10'd20;
-localparam PAD2_X    = 10'd612;  // 640 - PAD1_X - PAD_W
+localparam PAD2_X    = 10'd612;
 
-wire in_ball = (h_count >= gs_ball_x) && (h_count < gs_ball_x + BALL_SIZE) &&
-               (v_count >= gs_ball_y) && (v_count < gs_ball_y + BALL_SIZE);
-wire in_pad1 = (h_count >= PAD1_X)   && (h_count < PAD1_X + PAD_W) &&
+wire in_ball = (h_count >= gs_ball_x)  && (h_count < gs_ball_x + BALL_SIZE) &&
+               (v_count >= gs_ball_y)  && (v_count < gs_ball_y + BALL_SIZE);
+wire in_pad1 = (h_count >= PAD1_X)    && (h_count < PAD1_X + PAD_W) &&
                (v_count >= gs_pad1_y) && (v_count < gs_pad1_y + PAD_H);
-wire in_pad2 = (h_count >= PAD2_X)   && (h_count < PAD2_X + PAD_W) &&
+wire in_pad2 = (h_count >= PAD2_X)    && (h_count < PAD2_X + PAD_W) &&
                (v_count >= gs_pad2_y) && (v_count < gs_pad2_y + PAD_H);
-wire in_net  = (h_count >= 10'd318) && (h_count <= 10'd321) && (v_count[3] == 1'b0);
+wire in_net  = (h_count >= 10'd318)   && (h_count <= 10'd321) && (v_count[3] == 1'b0);
 
-wire [11:0] pixel_data = in_ball ? 12'hFFF :
-                         in_pad1 ? 12'hFFF :
-                         in_pad2 ? 12'hFFF :
-                         in_net  ? 12'h888 :
-                                   12'h000;
+// --- Parpadeo (~1.5 Hz) ---
+reg [25:0] blink_ctr;
+always @(posedge CLK100MHZ) blink_ctr <= blink_ctr + 1;
+wire blink = blink_ctr[25];
+
+// --- Opciones de menú/pausa (200×40 px, centradas en x=320) ---
+wire in_opt0 = (h_count >= 10'd220) && (h_count < 10'd420) &&
+               (v_count >= 10'd180) && (v_count < 10'd220);
+wire in_opt1 = (h_count >= 10'd220) && (h_count < 10'd420) &&
+               (v_count >= 10'd260) && (v_count < 10'd300);
+
+wire [11:0] opt0_color = (gs_selected == 2'd0) ? (blink ? 12'hFF0 : 12'h000) : 12'h333;
+wire [11:0] opt1_color = (gs_selected == 2'd1) ? (blink ? 12'hFF0 : 12'h000) : 12'h333;
+
+// --- Barra de gameover (400×60 px, centrada) ---
+wire in_winner = (h_count >= 10'd120) && (h_count < 10'd520) &&
+                 (v_count >= 10'd210) && (v_count < 10'd270);
+
+// --- Font 3×5 para marcador (8× escala → 24×40 px por dígito) ---
+// Glifo: {fila0[2:0], fila1[2:0], fila2[2:0], fila3[2:0], fila4[2:0]}
+// bit[2]=col izq, bit[0]=col der
+function [14:0] digit_glyph;
+    input [3:0] d;
+    case (d)
+        4'd0: digit_glyph = 15'b111_101_101_101_111;
+        4'd1: digit_glyph = 15'b010_010_010_010_010;
+        4'd2: digit_glyph = 15'b111_001_111_100_111;
+        4'd3: digit_glyph = 15'b111_001_111_001_111;
+        4'd4: digit_glyph = 15'b101_101_111_001_001;
+        4'd5: digit_glyph = 15'b111_100_111_001_111;
+        4'd6: digit_glyph = 15'b111_100_111_101_111;
+        4'd7: digit_glyph = 15'b111_001_001_001_001;
+        4'd8: digit_glyph = 15'b111_101_111_101_111;
+        4'd9: digit_glyph = 15'b111_101_111_001_111;
+        default: digit_glyph = 15'b0;
+    endcase
+endfunction
+
+// Score 1: esquina superior izquierda en (264, 8); Score 2: (352, 8)
+wire in_s1 = (h_count >= 10'd264) && (h_count < 10'd288) &&
+             (v_count >= 10'd8)   && (v_count < 10'd48);
+wire in_s2 = (h_count >= 10'd352) && (h_count < 10'd376) &&
+             (v_count >= 10'd8)   && (v_count < 10'd48);
+
+wire [1:0] s1_col = (h_count - 10'd264) >> 3;
+wire [2:0] s1_row = (v_count - 10'd8)   >> 3;
+wire [1:0] s2_col = (h_count - 10'd352) >> 3;
+wire [2:0] s2_row = (v_count - 10'd8)   >> 3;
+
+wire [14:0] s1_glyph = digit_glyph(gs_score1[3:0]);
+wire [14:0] s2_glyph = digit_glyph(gs_score2[3:0]);
+
+reg [2:0] s1_rb, s2_rb;
+always @(*) begin
+    case (s1_row)
+        3'd0: s1_rb = s1_glyph[14:12]; 3'd1: s1_rb = s1_glyph[11:9];
+        3'd2: s1_rb = s1_glyph[8:6];   3'd3: s1_rb = s1_glyph[5:3];
+        3'd4: s1_rb = s1_glyph[2:0];   default: s1_rb = 3'b0;
+    endcase
+    case (s2_row)
+        3'd0: s2_rb = s2_glyph[14:12]; 3'd1: s2_rb = s2_glyph[11:9];
+        3'd2: s2_rb = s2_glyph[8:6];   3'd3: s2_rb = s2_glyph[5:3];
+        3'd4: s2_rb = s2_glyph[2:0];   default: s2_rb = 3'b0;
+    endcase
+end
+
+wire s1_px = in_s1 && (s1_col == 2'd0 ? s1_rb[2] : s1_col == 2'd1 ? s1_rb[1] : s1_rb[0]);
+wire s2_px = in_s2 && (s2_col == 2'd0 ? s2_rb[2] : s2_col == 2'd1 ? s2_rb[1] : s2_rb[0]);
+
+// --- Mux de color por pantalla ---
+wire [11:0] pixel_data =
+    (gs_game_state == 2'd0) ? (                          // MENÚ
+        in_opt0 ? opt0_color :
+        in_opt1 ? opt1_color : 12'h000
+    ) :
+    (gs_game_state == 2'd1) ? (                          // JUGANDO
+        (s1_px || s2_px) ? 12'hFF0 :
+        in_ball           ? 12'hFFF :
+        in_pad1           ? 12'hFFF :
+        in_pad2           ? 12'hFFF :
+        in_net            ? 12'h888 : 12'h000
+    ) :
+    (gs_game_state == 2'd2) ? (                          // PAUSA
+        in_opt0 ? opt0_color :
+        in_opt1 ? opt1_color :
+        in_ball ? 12'h444 :
+        in_pad1 ? 12'h444 :
+        in_pad2 ? 12'h444 :
+        in_net  ? 12'h222 : 12'h111
+    ) :
+    (                                                     // GAMEOVER
+        in_winner ? (gs_selected == 2'd0 ? 12'h0F0 : 12'hF00) : 12'h000
+    );
 
 // -----------------------------------------------------------------------------
 // Salida VGA — pixel_mux apaga RGB durante blanking
