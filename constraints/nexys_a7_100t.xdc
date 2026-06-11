@@ -28,22 +28,24 @@ set_property -dict { PACKAGE_PIN P17 IOSTANDARD LVCMOS33 } [get_ports { BTNL }]
 ## Switches — SW[15:0]
 ## Nota: SW[8] y SW[9] estan en banco 34 (1.8 V) — usar LVCMOS18.
 ## -----------------------------------------------------------------------------
-set_property -dict { PACKAGE_PIN J15 IOSTANDARD LVCMOS33 } [get_ports { SW[0] }]
-set_property -dict { PACKAGE_PIN L16 IOSTANDARD LVCMOS33 } [get_ports { SW[1] }]
-set_property -dict { PACKAGE_PIN M13 IOSTANDARD LVCMOS33 } [get_ports { SW[2] }]
-set_property -dict { PACKAGE_PIN R15 IOSTANDARD LVCMOS33 } [get_ports { SW[3] }]
-set_property -dict { PACKAGE_PIN R17 IOSTANDARD LVCMOS33 } [get_ports { SW[4] }]
-set_property -dict { PACKAGE_PIN T18 IOSTANDARD LVCMOS33 } [get_ports { SW[5] }]
-set_property -dict { PACKAGE_PIN U18 IOSTANDARD LVCMOS33 } [get_ports { SW[6] }]
-set_property -dict { PACKAGE_PIN R13 IOSTANDARD LVCMOS33 } [get_ports { SW[7] }]
-set_property -dict { PACKAGE_PIN T8  IOSTANDARD LVCMOS18 } [get_ports { SW[8] }]
-set_property -dict { PACKAGE_PIN U8  IOSTANDARD LVCMOS18 } [get_ports { SW[9] }]
-set_property -dict { PACKAGE_PIN R16 IOSTANDARD LVCMOS33 } [get_ports { SW[10] }]
-set_property -dict { PACKAGE_PIN T13 IOSTANDARD LVCMOS33 } [get_ports { SW[11] }]
-set_property -dict { PACKAGE_PIN H6  IOSTANDARD LVCMOS33 } [get_ports { SW[12] }]
-set_property -dict { PACKAGE_PIN U12 IOSTANDARD LVCMOS33 } [get_ports { SW[13] }]
-set_property -dict { PACKAGE_PIN U11 IOSTANDARD LVCMOS33 } [get_ports { SW[14] }]
-set_property -dict { PACKAGE_PIN V10 IOSTANDARD LVCMOS33 } [get_ports { SW[15] }]
+## SW: top declara 'input wire SW' (escalar = solo SW[0] del board)
+set_property -dict { PACKAGE_PIN J15 IOSTANDARD LVCMOS33 } [get_ports { SW }]
+## SW[1..15] no usados en este diseño (top solo expone el bit 0 como modo 1P/2P)
+# set_property -dict { PACKAGE_PIN L16 IOSTANDARD LVCMOS33 } [get_ports { SW[1] }]
+# set_property -dict { PACKAGE_PIN M13 IOSTANDARD LVCMOS33 } [get_ports { SW[2] }]
+# set_property -dict { PACKAGE_PIN R15 IOSTANDARD LVCMOS33 } [get_ports { SW[3] }]
+# set_property -dict { PACKAGE_PIN R17 IOSTANDARD LVCMOS33 } [get_ports { SW[4] }]
+# set_property -dict { PACKAGE_PIN T18 IOSTANDARD LVCMOS33 } [get_ports { SW[5] }]
+# set_property -dict { PACKAGE_PIN U18 IOSTANDARD LVCMOS33 } [get_ports { SW[6] }]
+# set_property -dict { PACKAGE_PIN R13 IOSTANDARD LVCMOS33 } [get_ports { SW[7] }]
+# set_property -dict { PACKAGE_PIN T8  IOSTANDARD LVCMOS18 } [get_ports { SW[8] }]
+# set_property -dict { PACKAGE_PIN U8  IOSTANDARD LVCMOS18 } [get_ports { SW[9] }]
+# set_property -dict { PACKAGE_PIN R16 IOSTANDARD LVCMOS33 } [get_ports { SW[10] }]
+# set_property -dict { PACKAGE_PIN T13 IOSTANDARD LVCMOS33 } [get_ports { SW[11] }]
+# set_property -dict { PACKAGE_PIN H6  IOSTANDARD LVCMOS33 } [get_ports { SW[12] }]
+# set_property -dict { PACKAGE_PIN U12 IOSTANDARD LVCMOS33 } [get_ports { SW[13] }]
+# set_property -dict { PACKAGE_PIN U11 IOSTANDARD LVCMOS33 } [get_ports { SW[14] }]
+# set_property -dict { PACKAGE_PIN V10 IOSTANDARD LVCMOS33 } [get_ports { SW[15] }]
 
 ## -----------------------------------------------------------------------------
 ## LEDs — LED[15:0]
@@ -114,3 +116,36 @@ set_property -dict { PACKAGE_PIN D4  IOSTANDARD LVCMOS33 } [get_ports { UART_RXD
 # set_property -dict { PACKAGE_PIN C1  IOSTANDARD LVCMOS33 } [get_ports { SD_MOSI }]
 # set_property -dict { PACKAGE_PIN D1  IOSTANDARD LVCMOS33 } [get_ports { SD_MISO }]
 # set_property -dict { PACKAGE_PIN E1  IOSTANDARD LVCMOS33 } [get_ports { SD_CS }]
+
+## =============================================================================
+## Excepciones de temporización — puertos sin requisito de tiempo externo
+## Elimina las 44 violaciones TIMING-18 (missing input/output delay).
+## Todos estos puertos son asíncronos o usan protocolos con su propio reloj:
+##   Botones/SW/RESETN : entradas mecánicas asíncronas (debounce en fabric)
+##   LEDs              : indicadores, sin referencia externa de reloj
+##   VGA               : manejado por reloj de pixel dividido internamente
+##   UART / SPI        : protocolos serie con su propio baud/SCK
+## =============================================================================
+
+## Entradas asíncronas
+set_false_path -from [get_ports {BTNC BTND BTNL BTNR BTNU}]
+set_false_path -from [get_ports {SW}]
+set_false_path -from [get_ports {CPU_RESETN}]
+set_false_path -from [get_ports {UART_RXD_OUT}]
+set_false_path -from [get_ports {SPI_MOSI SPI_MISO}]
+
+## Salidas asíncronas
+set_false_path -to [get_ports {LED[*]}]
+set_false_path -to [get_ports {VGA_R[*] VGA_G[*] VGA_B[*] VGA_HS VGA_VS}]
+set_false_path -to [get_ports {UART_TXD_IN}]
+set_false_path -to [get_ports {SPI_MOSI SPI_MISO SPI_CS_N[*]}]
+
+## =============================================================================
+## Waivers — artefactos conocidos del IP Clock Wizard en Block Design
+## TIMING-4  : El XDC no-OOC del IP clk_wiz_1 define create_clock en clk_in1,
+##             que Vivado ve como redefinición de sys_clk_pin. El timing cierra
+##             correctamente (WNS > 0). Artefacto documentado de Xilinx BD.
+## TIMING-27 : Misma causa: primary clock en pin jerárquico interno del BD.
+## =============================================================================
+create_waiver -id TIMING-4  -description {BD clk_wiz_1 IP: create_clock redundante en clk_in1 downstream de sys_clk_pin (artefacto Xilinx BD)}
+create_waiver -id TIMING-27 -description {BD clk_wiz_1 IP: primary clock en pin jerarquico clk_wiz_1/inst/clk_in1 (artefacto Xilinx BD)}
