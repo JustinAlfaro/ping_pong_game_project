@@ -57,11 +57,12 @@ module top_pong_project (
     inout  wire        SPI_MISO,
     inout  wire [0:0]  SPI_CS_N,
 
-    // SPI microSD (conector onboard Nexys A7: B1/C1/D1/E2)
+    // SPI microSD (conector onboard Nexys A7: B1/C1/C2/D2/E2)
     inout  wire        SD_SCK,
     inout  wire        SD_MOSI,
     inout  wire        SD_MISO,
     inout  wire [0:0]  SD_CS_N,
+    output wire        SD_RESET,   // debe mantenerse en 0; en 1 la SD queda en reset por el config controller
 
     // DDR2 SDRAM (MT47H64M16HR-25E, 128 MB, 16-bit)
     inout  wire [15:0] ddr2_dq,
@@ -86,9 +87,10 @@ wire [15:0] led_gpio;
 assign LED[15]  = ddr2_calib_done;
 assign LED[14:0] = led_gpio[14:0];
 
-// SCK no expuesto por el wrapper; pines en Z hasta fix del BD
-assign SPI_SCK = 1'bz;
-assign SD_SCK  = 1'bz;
+// SPI inter-FPGA: SCK en Z (sck_io del wrapper pendiente de verificar en modo 2P)
+assign SPI_SCK  = 1'bz;
+// SD_RESET debe estar en 0: el config controller libera la SD tras arrancar y esta señal la saca de reset
+assign SD_RESET = 1'b0;
 
 // -------------------------------------------------------------------------
 // Debounce + sincronización de entradas
@@ -150,7 +152,8 @@ microblaze_v_wrapper u_soc (
     .spi_rtl_0_io1_io       (SPI_MISO),
     .spi_rtl_0_ss_io        (SPI_CS_N),
 
-    // SPI microSD (AXI Quad SPI 1) — idem, sck_io ausente del wrapper
+    // SPI microSD (AXI Quad SPI 1)
+    .spi_sd_0_sck_io        (SD_SCK),
     .spi_sd_0_io0_io        (SD_MOSI),
     .spi_sd_0_io1_io        (SD_MISO),
     .spi_sd_0_ss_io         (SD_CS_N),
