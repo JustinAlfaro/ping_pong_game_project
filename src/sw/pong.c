@@ -136,7 +136,9 @@ static u8      sd_read_r1    = 0xFF; /* R1 de CMD17 (debe ser 0x00) */
 static u8      sd_read_token = 0xFF; /* token de datos (debe ser 0xFE) */
 static u8      sd_cmd58_r1   = 0xFF; /* R1 de CMD58 (debe ser 0x00) */
 static u8      sd_ocr0       = 0xFF; /* OCR byte 0 [31:24]: bit6=CCS */
-static int     sd_sdhc    = 0;
+static int     sd_sdhc       = 0;
+static u32     sd_magic_read = 0;    /* magic leído de LBA1 (esperado 0x504F4E47="PONG") */
+static int     load_step     = 0;    /* 0=no ran, 1=hdr ok, 2=ball ok, 3=paddle ok, 4=logo ok */
 static int     sprites_ok = 0;
 
 /* Dirty-rect state — evita fb_clear() por frame */
@@ -217,7 +219,7 @@ static void fb_fill_rect(int x, int y, int w, int h, u8 color)
 static const u8 font4x5[10][5] = {
     {0x6, 0x9, 0x9, 0x9, 0x6},  /* 0 */
     {0x2, 0x6, 0x2, 0x2, 0x7},  /* 1 */
-    {0x6, 0x9, 0x4, 0x2, 0xF},  /* 2 */
+    {0x6, 0x9, 0x2, 0x4, 0xF},  /* 2 */
     {0xE, 0x1, 0x6, 0x1, 0xE},  /* 3 */
     {0x9, 0x9, 0xF, 0x1, 0x1},  /* 4 */
     {0xF, 0x8, 0xE, 0x1, 0xE},  /* 5 */
@@ -271,6 +273,55 @@ static void fb_blit(int x, int y, int w, int h, const u8 *spr, int transparent)
             u32 word  = Xil_In32(addr);
             Xil_Out32(addr, (word & ~(0xFu << shift)) | ((u32)px << shift));
         }
+    }
+}
+
+/* Blit con escala entera (sc=1 → 1:1, sc=4 → cada px del sprite = 4×4 en FB). */
+static void fb_blit_scaled(int x, int y, int w, int h, const u8 *spr, int transparent, int sc)
+{
+    for (int row = 0; row < h; row++) {
+        for (int col = 0; col < w; col++) {
+            int idx = row * w + col;
+            u8  px  = (idx & 1) ? (spr[idx >> 1] & 0xF) : (spr[idx >> 1] >> 4);
+            if (transparent && px == 0) continue;
+            fb_fill_rect(x + col * sc, y + row * sc, sc, sc, px);
+        }
+    }
+}
+
+/* Mini-fuente de letras: A,D,E,I,L,N,R,S,U (4×5 px, nibble MSB = col izquierdo) */
+static const u8 font_ext[9][5] = {
+    {0x6, 0x9, 0xF, 0x9, 0x9},  /* A */
+    {0xE, 0x9, 0x9, 0x9, 0xE},  /* D */
+    {0xF, 0x8, 0xE, 0x8, 0xF},  /* E */
+    {0xF, 0x6, 0x6, 0x6, 0xF},  /* I */
+    {0x8, 0x8, 0x8, 0x8, 0xF},  /* L */
+    {0x9, 0xD, 0xB, 0x9, 0x9},  /* N */
+    {0xE, 0x9, 0xE, 0xA, 0x9},  /* R */
+    {0x7, 0x8, 0x6, 0x1, 0xE},  /* S */
+    {0x9, 0x9, 0x9, 0x9, 0x6},  /* U */
+};
+
+static int char_idx(char c) {
+    switch (c) {
+        case 'A': return 0; case 'D': return 1; case 'E': return 2;
+        case 'I': return 3; case 'L': return 4; case 'N': return 5;
+        case 'R': return 6; case 'S': return 7; case 'U': return 8;
+        default:  return -1;
+    }
+}
+
+static void fb_draw_str(int x, int y, const char *s, int scale, u8 color) {
+    while (*s) {
+        int idx = char_idx(*s++);
+        if (idx >= 0) {
+            const u8 *g = font_ext[idx];
+            for (int row = 0; row < 5; row++)
+                for (int col = 0; col < 4; col++)
+                    if (g[row] & (0x8u >> col))
+                        fb_fill_rect(x + col*scale, y + row*scale, scale, scale, color);
+        }
+        x += 4*scale + 2;
     }
 }
 
@@ -538,21 +589,26 @@ static void load_sprites(void)
     if (sd_read_block(SD_LBA_HDR, sd_sector_buf) != 0) return;
     u32 magic = ((u32)sd_sector_buf[0] << 24) | ((u32)sd_sector_buf[1] << 16) |
                 ((u32)sd_sector_buf[2] <<  8) |  (u32)sd_sector_buf[3];
+    sd_magic_read = magic;
     if (magic != SD_MAGIC) return;
+    load_step = 1;
 
     u8 *dst;
 
     if (sd_read_block(SD_LBA_BALL, sd_sector_buf) != 0) return;
     dst = DDR2_SPR_BALL;
     for (int i = 0; i < SPR_BALL_W * SPR_BALL_H / 2; i++) dst[i] = sd_sector_buf[i];
+    load_step = 2;
 
     if (sd_read_block(SD_LBA_PADDLE, sd_sector_buf) != 0) return;
     dst = DDR2_SPR_PADDLE;
     for (int i = 0; i < SPR_PAD_W * SPR_PAD_H / 2; i++) dst[i] = sd_sector_buf[i];
+    load_step = 3;
 
     if (sd_read_block(SD_LBA_LOGO, sd_sector_buf) != 0) return;
     dst = DDR2_SPR_LOGO;
     for (int i = 0; i < SPR_LOGO_W * SPR_LOGO_H / 2; i++) dst[i] = sd_sector_buf[i];
+    load_step = 4;
 
     sprites_ok = 1;
 }
@@ -712,15 +768,17 @@ static void render_frame(void)
     /* ── MENÚ ─────────────────────────────────────────────────────────── */
     case ST_MENU:
         if (needs_full_redraw) {
-            fb_clear(COL_BLUE);
+            fb_clear(COL_BLACK);
             if (sprites_ok)
-                fb_blit(288, 60, SPR_LOGO_W, SPR_LOGO_H, DDR2_SPR_LOGO, 1);
+                fb_blit_scaled(192, 40, SPR_LOGO_W, SPR_LOGO_H, DDR2_SPR_LOGO, 1, 4);
             needs_full_redraw = 0;
             prev_selected = -1;
         }
         if (prev_selected != selected) {
             fb_fill_rect(220, 175, 200, 45, (selected == 0) ? COL_YELLOW : COL_DGRAY);
+            fb_draw_digit(312, 183, 1, 6, COL_BLACK);
             fb_fill_rect(220, 260, 200, 45, (selected == 1) ? COL_YELLOW : COL_DGRAY);
+            fb_draw_digit(312, 268, 2, 6, COL_BLACK);
             prev_selected = selected;
         }
         break;
@@ -742,19 +800,22 @@ static void render_frame(void)
             needs_full_redraw = 0;
             if (game_state == ST_PAUSE) {
                 fb_fill_rect(220, 175, 200, 45, (selected == 0) ? COL_YELLOW : COL_DGRAY);
+                fb_draw_str(249, 187, "REANUDAR", 4, COL_BLACK);
                 fb_fill_rect(220, 260, 200, 45, (selected == 1) ? COL_YELLOW : COL_DGRAY);
+                fb_draw_str(276, 272, "SALIR", 4, COL_BLACK);
                 prev_selected = selected;
             }
             break;
         }
 
-        /* Dirty-rect: borrar posiciones anteriores */
-        fb_fill_rect(prev_ball_x, prev_ball_y, BALL_SZ, BALL_SZ, COL_BLACK);
-        if (prev_ball_x + BALL_SZ > 318 && prev_ball_x < 322) {
-            for (int ny = (prev_ball_y / 8) * 8; ny < prev_ball_y + BALL_SZ; ny += 8)
+        /* Borrar posición anterior de la pelota */
+        int old_bx = prev_ball_x, old_by = prev_ball_y;
+        fb_fill_rect(old_bx, old_by, BALL_SZ, BALL_SZ, COL_BLACK);
+        /* Restaurar línea central donde estaba la pelota */
+        if (old_bx + BALL_SZ > 318 && old_bx < 322) {
+            for (int ny = (old_by / 8) * 8; ny < old_by + BALL_SZ; ny += 8)
                 if (ny < FB_H) fb_fill_rect(318, ny, 4, 4, COL_GRAY);
         }
-        if (prev_ball_y < 48) score_dirty = 1;  /* restaurar marcador si pelota pasó por ahí */
         /* Delta-rect paddles: solo los strips que cambian */
         if (pad[0].y != prev_pad0_y) {
             int dy = pad[0].y - prev_pad0_y;
@@ -785,21 +846,32 @@ static void render_frame(void)
             prev_pad1_y = pad[1].y;
         }
 
-        /* Pelota en nueva posición */
-        fb_fill_rect(ball.x, ball.y, BALL_SZ, BALL_SZ, COL_WHITE);
         prev_ball_x = ball.x; prev_ball_y = ball.y;
 
-        /* Marcador: solo cuando cambió */
-        if (score_dirty) {
-            fb_fill_rect(220, 0, 200, 48, COL_BLACK);
-            fb_draw_scores();
-            score_dirty = 0;
+        /* Marcador: solo redibuja si score cambió O la pelota vieja cubría un dígito.
+           Dígito izquierdo: (256,8) escala 6 → 24×30 px. Con margen: (252,4,32,38).
+           Dígito derecho:   (360,8) escala 6 → 24×30 px. Con margen: (356,4,36,38). */
+        {
+            int hl = (old_bx + BALL_SZ > 252 && old_bx < 284 &&
+                      old_by + BALL_SZ > 4   && old_by < 42);
+            int hr = (old_bx + BALL_SZ > 356 && old_bx < 392 &&
+                      old_by + BALL_SZ > 4   && old_by < 42);
+            if (score_dirty || hl || hr) {
+                if (score_dirty || hl) fb_fill_rect(252, 4, 32, 38, COL_BLACK);
+                if (score_dirty || hr) fb_fill_rect(356, 4, 36, 38, COL_BLACK);
+                fb_draw_scores();
+                score_dirty = 0;
+            }
         }
+        /* Pelota al último, siempre encima del marcador */
+        fb_fill_rect(ball.x, ball.y, BALL_SZ, BALL_SZ, COL_WHITE);
 
         /* Overlay de pausa: solo cuando cambió la selección */
         if (game_state == ST_PAUSE && prev_selected != selected) {
             fb_fill_rect(220, 175, 200, 45, (selected == 0) ? COL_YELLOW : COL_DGRAY);
+            fb_draw_str(249, 187, "REANUDAR", 4, COL_BLACK);
             fb_fill_rect(220, 260, 200, 45, (selected == 1) ? COL_YELLOW : COL_DGRAY);
+            fb_draw_str(276, 272, "SALIR", 4, COL_BLACK);
             prev_selected = selected;
         }
         break;
@@ -942,6 +1014,7 @@ int main(void)
     score[0]   = score[1] = 0;
     init_game();
     sd_ok = sd_run_test();
+    load_sprites();
 
     /* Frame inicial del menú */
     render_frame();
