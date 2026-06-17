@@ -134,8 +134,8 @@ microblaze_v_wrapper u_soc (
     // DDR2 calib done
     .init_calib_complete_0  (ddr2_calib_done),
 
-    // GPIO0 — botones [4:0] = {BTNR, BTNL, BTNC, BTND, BTNU}
-    .gpio_rtl_0_tri_i       ({btn_r_lvl, btn_l_lvl, btn_c_lvl, btn_d_lvl, btn_u_lvl}),
+    // GPIO0 — [5]=vsync  [4:0]={BTNR,BTNL,BTNC,BTND,BTNU}
+    .gpio_rtl_0_tri_i       ({26'b0, vga_vs_int, btn_r_lvl, btn_l_lvl, btn_c_lvl, btn_d_lvl, btn_u_lvl}),
 
     // GPIO1 — SW[0] modo 2P
     .gpio_rtl_1_tri_i       (sw_sync),
