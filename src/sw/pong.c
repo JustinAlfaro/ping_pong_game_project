@@ -252,6 +252,36 @@ static void fb_draw_scores(void)
     fb_draw_digit(360, 8, score[1], 6, COL_WHITE);
 }
 
+/* Devuelve el color de fondo estático en (x,y).
+   Conoce la línea central y los dígitos del marcador para poder
+   restaurar el fondo exacto al borrar la pelota sin redibujarlo. */
+static u8 bg_pixel(int x, int y)
+{
+    /* Línea central: 4px gris / 4px negro alternados en bloques de 8 */
+    if (x >= 318 && x < 322 && (y & 7) < 4) return COL_GRAY;
+    /* Dígito izquierdo (256,8) escala 6 → celdas de 6×6 px */
+    if (x >= 256 && x < 280 && y >= 8 && y < 38) {
+        u8 p = font4x5[score[0] % 10][(y - 8) / 6];
+        if (p & (0x8u >> ((x - 256) / 6))) return COL_WHITE;
+    }
+    /* Dígito derecho (360,8) escala 6 */
+    if (x >= 360 && x < 384 && y >= 8 && y < 38) {
+        u8 p = font4x5[score[1] % 10][(y - 8) / 6];
+        if (p & (0x8u >> ((x - 360) / 6))) return COL_WHITE;
+    }
+    return COL_BLACK;
+}
+
+/* Escribe un solo píxel con RMW (para restauración de fondo). */
+static void fb_set_pixel(int x, int y, u8 color)
+{
+    u32 pidx  = (u32)y * FB_W + x;
+    u32 addr  = FB_BASE + ((pidx >> 3) << 2);
+    u32 shift = (7u - (pidx & 7u)) * 4u;
+    u32 word  = Xil_In32(addr);
+    Xil_Out32(addr, (word & ~(0xFu << shift)) | ((u32)color << shift));
+}
+
 /*
  * Blit de sprite 4-bit (high nibble = px izquierdo) al framebuffer.
  * Si transparent != 0, los píxeles con valor 0 (negro) no se escriben.
@@ -808,14 +838,14 @@ static void render_frame(void)
             break;
         }
 
-        /* Borrar posición anterior de la pelota */
+        /* Restaurar el fondo exacto en la posición anterior de la pelota.
+           bg_pixel devuelve el color correcto para dígitos y midline,
+           eliminando la necesidad de redibujarlo por separado. */
         int old_bx = prev_ball_x, old_by = prev_ball_y;
-        fb_fill_rect(old_bx, old_by, BALL_SZ, BALL_SZ, COL_BLACK);
-        /* Restaurar línea central donde estaba la pelota */
-        if (old_bx + BALL_SZ > 318 && old_bx < 322) {
-            for (int ny = (old_by / 8) * 8; ny < old_by + BALL_SZ; ny += 8)
-                if (ny < FB_H) fb_fill_rect(318, ny, 4, 4, COL_GRAY);
-        }
+        for (int r = 0; r < BALL_SZ; r++)
+            for (int d = 0; d < BALL_SZ; d++)
+                fb_set_pixel(old_bx + d, old_by + r,
+                             bg_pixel(old_bx + d, old_by + r));
         /* Delta-rect paddles: solo los strips que cambian */
         if (pad[0].y != prev_pad0_y) {
             int dy = pad[0].y - prev_pad0_y;
@@ -848,22 +878,7 @@ static void render_frame(void)
 
         prev_ball_x = ball.x; prev_ball_y = ball.y;
 
-        /* Marcador: solo redibuja si score cambió O la pelota vieja cubría un dígito.
-           Dígito izquierdo: (256,8) escala 6 → 24×30 px. Con margen: (252,4,32,38).
-           Dígito derecho:   (360,8) escala 6 → 24×30 px. Con margen: (356,4,36,38). */
-        {
-            int hl = (old_bx + BALL_SZ > 252 && old_bx < 284 &&
-                      old_by + BALL_SZ > 4   && old_by < 42);
-            int hr = (old_bx + BALL_SZ > 356 && old_bx < 392 &&
-                      old_by + BALL_SZ > 4   && old_by < 42);
-            if (score_dirty || hl || hr) {
-                if (score_dirty || hl) fb_fill_rect(252, 4, 32, 38, COL_BLACK);
-                if (score_dirty || hr) fb_fill_rect(356, 4, 36, 38, COL_BLACK);
-                fb_draw_scores();
-                score_dirty = 0;
-            }
-        }
-        /* Pelota al último, siempre encima del marcador */
+        /* Pelota en nueva posición (siempre al último, encima de todo) */
         fb_fill_rect(ball.x, ball.y, BALL_SZ, BALL_SZ, COL_WHITE);
 
         /* Overlay de pausa: solo cuando cambió la selección */
