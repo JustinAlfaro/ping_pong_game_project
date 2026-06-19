@@ -41,10 +41,14 @@
 #define DDR2_SPR_BALL   ((u8 *)(DDR2_BASE + 0x40000UL))  /* 32 B,  tras 256 KB de código */
 #define DDR2_SPR_PADDLE ((u8 *)(DDR2_BASE + 0x40020UL))  /* 240 B */
 #define DDR2_SPR_LOGO     ((u8 *)(DDR2_BASE + 0x40110UL))  /* 512 B */
-#define DDR2_SPR_GAMEOVER ((u8 *)(DDR2_BASE + 0x41000UL))  /* 18000 B — 160×225 4bpp (3 secciones) */
-#define SPR_GO_W         160
+#define DDR2_SPR_GAMEOVER ((u8 *)(DDR2_BASE + 0x41000UL))  /* 22500 B — 200×225 4bpp (3 secciones) */
+#define DDR2_SPR_MSEL     ((u8 *)(DDR2_BASE + 0x47000UL))  /* 11200 B — 200×112 4bpp */
+#define DDR2_SPR_PAUSE    ((u8 *)(DDR2_BASE + 0x4A000UL))  /* 8000 B  — 200×80  4bpp */
+#define SPR_GO_W         200
 #define SPR_GO_SEC_H      75   /* alto de cada sección (3 secciones × 75 = 225) */
-#define SPR_GO_SEC_BYTES (SPR_GO_W * SPR_GO_SEC_H / 2)  /* 6000 B por sección */
+#define SPR_GO_SEC_BYTES (SPR_GO_W * SPR_GO_SEC_H / 2)  /* 7500 B por sección */
+#define SPR_PAUSE_W      200
+#define SPR_PAUSE_H       80
 
 /* ── Paleta (debe coincidir con top_pong_project.v) ──────────────────────── */
 #define COL_BLACK   0
@@ -59,7 +63,7 @@
 #define COL_MAGENTA 9
 
 /* ── Geometría del juego ──────────────────────────────────────────────────── */
-#define BALL_TICK_DIV 2    /* pelota avanza cada 2 frames (~60 Hz con usleep 8 ms) */
+#define BALL_TICK_DIV 1    /* pelota avanza cada frame (60 Hz, vsync real) */
 #define BALL_SZ    8
 #define PAD_W      8
 #define PAD_H      60
@@ -111,17 +115,21 @@ typedef struct { int y; }             pad_t;
 #define SPR_PAD_H    60
 #define SPR_LOGO_W   64
 #define SPR_LOGO_H   16
+#define SPR_MSEL_W   200
+#define SPR_MSEL_H   112
 
 /* Sprites viven en DDR2 — ver DDR2_SPR_BALL / _PADDLE / _LOGO */
 static u8 sd_sector_buf[512];
 
 /* Layout de sectores en la SD (LBA, antes de la partición → sector 0 = MBR) */
-#define SD_MAGIC      0x504F4E47u   /* "PONG" */
-#define SD_LBA_HDR    1
-#define SD_LBA_BALL   2
-#define SD_LBA_PADDLE 3
+#define SD_MAGIC        0x504F4E47u   /* "PONG" */
+#define SD_LBA_HDR      1
+#define SD_LBA_BALL     2
+#define SD_LBA_PADDLE   3
 #define SD_LBA_LOGO     5   /* 512 B = 1 sector exacto */
-#define SD_LBA_GAMEOVER 6   /* 160×225 4bpp = 18000 B = 36 sectores (LBA 6-41) */
+#define SD_LBA_GAMEOVER 6   /* 200×225 4bpp = 22500 B = 44 sectores (LBA 6-49) */
+#define SD_LBA_MSEL    50   /* 200×112 4bpp = 11200 B = 22 sectores (LBA 50-71) */
+#define SD_LBA_PAUSE   72   /* 200×80  4bpp = 8000 B  = 16 sectores (LBA 72-87) */
 
 /* ── Estado global ───────────────────────────────────────────────────────── */
 static ball_t  ball;
@@ -146,10 +154,13 @@ static int     sd_sdhc       = 0;
 static u32     sd_magic_read = 0;    /* magic leído de LBA1 (esperado 0x504F4E47="PONG") */
 static int     load_step     = 0;    /* 0=no ran, 1=hdr ok, 2=ball ok, 3=paddle ok, 4=logo ok */
 static int     sprites_ok = 0;
+static int     msel_loaded = 0;
+static int     pause_loaded = 0;
 
 /* Dirty-rect state — evita fb_clear() por frame */
 static int     ball_tick         = 0;
 static int     hit_count         = 0;
+static int     bounce_count      = 0;
 static u32     rng_state         = 73856093u;
 static int     score_dirty       = 1;
 static int     needs_full_redraw = 1;
@@ -180,8 +191,14 @@ static void fb_clear(u8 color)
 static void wait_vsync(void)
 {
     int t;
-    /* Si no está en HIGH ahora, el bit no funciona (siempre 0) — no esperar */
-    if (!(Xil_In32(XPAR_AXI_GPIO_0_BASEADDR) & BTN_VSYNC)) return;
+    /* Si ya estamos DENTRO del pulso (vsync LOW): esperar a que termine.
+     * Nota: el guard anterior hacía return inmediato aquí, lo que permitía
+     * 2-3 iteraciones de game logic por frame visual → efecto de pintado. */
+    if (!(Xil_In32(XPAR_AXI_GPIO_0_BASEADDR) & BTN_VSYNC)) {
+        t = 200000;
+        while (!(Xil_In32(XPAR_AXI_GPIO_0_BASEADDR) & BTN_VSYNC) && --t);
+        return;  /* back porch comenzó — safe para renderizar */
+    }
     /* Esperar LOW (inicio del pulso vsync) */
     t = 2000000;
     while ((Xil_In32(XPAR_AXI_GPIO_0_BASEADDR) & BTN_VSYNC) && --t);
@@ -338,40 +355,56 @@ static void fb_blit(int x, int y, int w, int h, const u8 *spr, int transparent)
     }
 }
 
-/* Blit con escala entera (sc=1 → 1:1, sc=4 → cada px del sprite = 4×4 en FB). */
+/* Blit con escala entera (sc=1 → 1:1, sc=4 → cada px del sprite = 4×4 en FB).
+ * Agrupa runs consecutivos del mismo color en un solo fb_fill_rect para reducir
+ * operaciones RMW en BRAM de O(w*h) a O(runs), crítico sin data cache. */
 static void fb_blit_scaled(int x, int y, int w, int h, const u8 *spr, int transparent, int sc)
 {
     for (int row = 0; row < h; row++) {
-        for (int col = 0; col < w; col++) {
+        int col = 0;
+        while (col < w) {
             int idx = row * w + col;
             u8  px  = (idx & 1) ? (spr[idx >> 1] & 0xF) : (spr[idx >> 1] >> 4);
-            if (transparent && px == 0) continue;
-            fb_fill_rect(x + col * sc, y + row * sc, sc, sc, px);
+            if (transparent && px == 0) { col++; continue; }
+            int run = 1;
+            while (col + run < w) {
+                int idx2 = row * w + col + run;
+                u8  px2  = (idx2 & 1) ? (spr[idx2 >> 1] & 0xF) : (spr[idx2 >> 1] >> 4);
+                if (px2 != px) break;
+                run++;
+            }
+            fb_fill_rect(x + col * sc, y + row * sc, run * sc, sc, px);
+            col += run;
         }
     }
 }
 
 /* Mini-fuente de letras: A,D,E,G,I,L,N,R,S,T,U (4×5 px, nibble MSB = col izquierdo) */
-static const u8 font_ext[11][5] = {
+static const u8 font_ext[15][5] = {
     {0x6, 0x9, 0xF, 0x9, 0x9},  /* A */
     {0xE, 0x9, 0x9, 0x9, 0xE},  /* D */
     {0xF, 0x8, 0xE, 0x8, 0xF},  /* E */
     {0x7, 0x8, 0xB, 0x9, 0x7},  /* G */
     {0xF, 0x6, 0x6, 0x6, 0xF},  /* I */
     {0x8, 0x8, 0x8, 0x8, 0xF},  /* L */
+    {0x9, 0xF, 0xF, 0x9, 0x9},  /* M */
     {0x9, 0xD, 0xB, 0x9, 0x9},  /* N */
+    {0x6, 0x9, 0x9, 0x9, 0x6},  /* O */
+    {0xE, 0x9, 0xE, 0x8, 0x8},  /* P */
     {0xE, 0x9, 0xE, 0xA, 0x9},  /* R */
     {0x7, 0x8, 0x6, 0x1, 0xE},  /* S */
     {0xF, 0x6, 0x6, 0x6, 0x6},  /* T */
     {0x9, 0x9, 0x9, 0x9, 0x6},  /* U */
+    {0x9, 0x9, 0x9, 0x6, 0x6},  /* V */
 };
 
 static int char_idx(char c) {
     switch (c) {
         case 'A': return 0; case 'D': return 1; case 'E': return 2;
         case 'G': return 3; case 'I': return 4; case 'L': return 5;
-        case 'N': return 6; case 'R': return 7; case 'S': return 8;
-        case 'T': return 9; case 'U': return 10;
+        case 'M': return 6; case 'N': return 7; case 'O': return 8;
+        case 'P': return 9; case 'R': return 10; case 'S': return 11;
+        case 'T': return 12; case 'U': return 13; case 'V': return 14;
         default:  return -1;
     }
 }
@@ -560,9 +593,9 @@ static int sd_read_block(u32 lba, u8 *buf)
 {
     u32 addr = sd_sdhc ? lba : (lba << 9);
 
-    /* Gap mínimo SD SPI: 8+ ciclos idle con CS desasertado antes de cualquier cmd */
+    /* Gap: 8 ciclos idle con CS desasertado */
     Xil_Out32(SD_BASE + SPI_SSR, 0xFFu);
-    for (int i = 0; i < 2; i++) sd_spi_byte(0xFF);
+    for (int i = 0; i < 8; i++) sd_spi_byte(0xFF);
 
     Xil_Out32(SD_BASE + SPI_SSR, 0xFEu);   /* CS assert */
 
@@ -575,8 +608,9 @@ static int sd_read_block(u32 lba, u8 *buf)
     sd_read_r1 = r1;
     if (r1 != 0x00) { Xil_Out32(SD_BASE + SPI_SSR, 0xFFu); return -1; }
 
+    /* N_AC_max = 100 ms @ 3.125 MHz = ~31250 bytes; usar 40000 con margen */
     u8 tok = 0xFF;
-    for (int i = 0; i < 500 && tok != 0xFE; i++) tok = sd_spi_byte(0xFF);
+    for (int i = 0; i < 40000 && tok != 0xFE; i++) tok = sd_spi_byte(0xFF);
     sd_read_token = tok;
     if (tok != 0xFE) { Xil_Out32(SD_BASE + SPI_SSR, 0xFFu); return -1; }
 
@@ -645,6 +679,13 @@ static int sd_run_test(void)
     return 1;
 }
 
+static int sd_read_block_r(u32 lba, u8 *buf)
+{
+    for (int r = 0; r < 3; r++)
+        if (sd_read_block(lba, buf) == 0) return 0;
+    return -1;
+}
+
 /* Carga los sprites desde los sectores reservados de la SD. */
 static void load_sprites(void)
 {
@@ -676,8 +717,8 @@ static void load_sprites(void)
     load_step = 4;
 
     dst = DDR2_SPR_GAMEOVER;
-    for (int s = 0; s < 36; s++) {
-        if (sd_read_block(SD_LBA_GAMEOVER + s, sd_sector_buf) != 0) return;
+    for (int s = 0; s < 44; s++) {
+        if (sd_read_block_r(SD_LBA_GAMEOVER + s, sd_sector_buf) != 0) return;
         int loaded = s * 512;
         int remain = (SPR_GO_W * 225 / 2) - loaded;
         int copy   = (remain >= 512) ? 512 : remain;
@@ -685,8 +726,31 @@ static void load_sprites(void)
         for (int i = 0; i < copy; i++) dst[loaded + i] = sd_sector_buf[i];
     }
     load_step = 5;
-
     sprites_ok = 1;
+
+    /* mode_select: 160×90 4bpp = 7200 B = 15 sectores */
+    dst = DDR2_SPR_MSEL;
+    for (int s = 0; s < 22; s++) {
+        if (sd_read_block_r(SD_LBA_MSEL + s, sd_sector_buf) != 0) return;
+        int loaded = s * 512;
+        int remain = (SPR_MSEL_W * SPR_MSEL_H / 2) - loaded;
+        int copy   = (remain >= 512) ? 512 : remain;
+        if (copy <= 0) break;
+        for (int i = 0; i < copy; i++) dst[loaded + i] = sd_sector_buf[i];
+    }
+    msel_loaded = 1;
+
+    /* pause_menu: 200×80 4bpp = 8000 B = 16 sectores */
+    dst = DDR2_SPR_PAUSE;
+    for (int s = 0; s < 16; s++) {
+        if (sd_read_block_r(SD_LBA_PAUSE + s, sd_sector_buf) != 0) return;
+        int loaded = s * 512;
+        int remain = (SPR_PAUSE_W * SPR_PAUSE_H / 2) - loaded;
+        int copy   = (remain >= 512) ? 512 : remain;
+        if (copy <= 0) break;
+        for (int i = 0; i < copy; i++) dst[loaded + i] = sd_sector_buf[i];
+    }
+    pause_loaded = 1;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -700,13 +764,14 @@ static void init_game(void)
     ball.x  = FB_W / 2;
     ball.y  = FB_H / 4 + (int)(r % (FB_H / 2));
     /* Dirección X: alterna hacia el último perdedor (r bit 0); dy: 2–4 aleatorio */
-    ball.dx = (r & 1u) ? 4 : -4;
-    ball.dy = (int)(2 + (rng_next() % 3));  /* 2, 3 o 4 */
+    ball.dx = (r & 1u) ? 2 : -2;
+    ball.dy = (int)(1 + (rng_next() % 2));  /* 1 o 2 */
     if (rng_next() & 1u) ball.dy = -ball.dy;
     pad[0].y = (FB_H - PAD_H) / 2;
     pad[1].y = (FB_H - PAD_H) / 2;
-    ball_tick = 0;
-    hit_count = 0;
+    ball_tick    = 0;
+    hit_count    = 0;
+    bounce_count = 0;
     needs_full_redraw = 1;
 }
 
@@ -743,40 +808,63 @@ static void move_local_pad(int p, int up)
 
 static void move_ai(void)
 {
-    static int freeze      = 0;
-    static int interval    = 0;
-    static int hit_offset  = PAD_H / 2;  /* zona de la paleta con que se golpea */
+    static int react_delay = 0;   /* frames que la IA tarda en reaccionar */
+    static int hit_offset  = PAD_H / 2;
+    static int aim_err     = 0;   /* error de puntería en px (persiste por rally) */
     static int last_dx_ai  = 0;
 
-    /* Sortear zona de golpeo cada vez que la pelota viene hacia la IA */
-    if (ball.dx < 0 && last_dx_ai >= 0)
-        hit_offset = (int)(rng_next() % (PAD_H - BALL_SZ + 1));
-    last_dx_ai = ball.dx;
+    /* Contar rebotes para anti-loop */
+    if ((ball.dx > 0 && last_dx_ai < 0) || (ball.dx < 0 && last_dx_ai > 0))
+        bounce_count++;
 
-    /* Cada ~3.5 s (300 frames) se sortea una probabilidad aleatoria entre 0% y 2% */
-    if (freeze == 0) {
-        if (++interval >= 300) {
-            interval = 0;
-            int prob = (int)(rng_next() % 3);
-            if ((int)(rng_next() % 100) < prob)
-                freeze = 15 + (int)(rng_next() % 16);
+    /* Cuando la pelota empieza a venir hacia la IA: sortear reacción y puntería */
+    if (ball.dx < 0 && last_dx_ai >= 0) {
+        hit_offset = (int)(rng_next() % (PAD_H - BALL_SZ + 1));
+
+        /* 27 % de probabilidad de reacción tardía (33-55 frames perdidos).
+         * Con spd=3 y dx=7, la cobertura baja de ~273 px a ~108 px mínimo —
+         * la IA no puede alcanzar esquinas si sale con retraso. */
+        if ((int)(rng_next() % 100) < 27) {
+            react_delay = 33 + (int)(rng_next() % 23);
+            aim_err = (int)(rng_next() % 13) - 6;  /* ±6 px cuando llega tarde */
+        } else {
+            aim_err = (int)(rng_next() % 9) - 4;   /* ±4 px de imprecisión normal */
         }
     }
+    last_dx_ai = ball.dx;
 
-    if (freeze > 0) { freeze--; return; }
+    /* Anti-loop: tras 8 rebotes sin gol, forzar zona opuesta del paddle */
+    if (bounce_count >= 8) {
+        bounce_count = 0;
+        int mid = (PAD_H - BALL_SZ) / 2;
+        if (hit_offset <= mid)
+            hit_offset = mid + 2 + (int)(rng_next() % (mid - 2));
+        else
+            hit_offset = 1 + (int)(rng_next() % (mid - 2));
+    }
 
-    /* Seguimiento: mover la paleta para que hit_offset quede alineado con la pelota */
-    int target = ball.y + BALL_SZ / 2 - hit_offset;
-    int spd    = ball.dy < 0 ? -ball.dy : ball.dy;
-    if (spd < 2) spd = 2;
+    /* Retraso de reacción activo: la IA no se mueve aún */
+    if (react_delay > 0) { react_delay--; return; }
 
+    /* Seguimiento: 3 px/frame.
+     * A dx=7 la pelota tarda ~91 frames en cruzar el campo; sin retraso
+     * la IA cubre ~273 px — suficiente para alcanzar cualquier punto si
+     * parte razonablemente cerca. Con 30 frames de retraso solo cubre ~183 px,
+     * dejando las esquinas vulnerables si la IA estaba lejos. */
+    int target = ball.y + BALL_SZ / 2 - hit_offset + aim_err;
+
+    /* Snap al target cuando la distancia es menor que spd para evitar oscilación */
     if (ball.dx < 0) {
-        if (pad[0].y < target) pad[0].y += spd;
-        else if (pad[0].y > target) pad[0].y -= spd;
+        int diff = target - pad[0].y;
+        if      (diff >  3) pad[0].y += 3;
+        else if (diff < -3) pad[0].y -= 3;
+        else                pad[0].y += diff;
     } else {
         int mid = (FB_H - PAD_H) / 2;
-        if      (pad[0].y < mid) pad[0].y += spd;
-        else if (pad[0].y > mid) pad[0].y -= spd;
+        int diff = mid - pad[0].y;
+        if      (diff >  3) pad[0].y += 3;
+        else if (diff < -3) pad[0].y -= 3;
+        else                pad[0].y += diff;
     }
 
     if (pad[0].y < 0)            pad[0].y = 0;
@@ -797,24 +885,24 @@ static void move_ball(void)
     /* Colisión paleta izquierda */
     if (collide(&ball, PAD1_X, pad[0].y)) {
         int hit = (pad[0].y + PAD_H) - ball.y;
-        int spd = 4 + (++hit_count);
-        if (spd > 25) spd = 25;
+        int spd = 2 + (++hit_count);
+        if (spd > 7) spd = 7;   /* dx < BALL_SZ → solapamiento garantizado */
         ball.dx = spd;
-        ball.dy = (hit < 8) ? 4 : (hit < 16) ? 3 : (hit < 24) ? 2 :
+        ball.dy = (hit < 8) ? 2 : (hit < 16) ? 2 : (hit < 24) ? 1 :
                   (hit < 30) ? 1 : (hit < 32) ? 0 : (hit < 38) ? -1 :
-                  (hit < 46) ? -2 : (hit < 54) ? -3 : -4;
+                  (hit < 46) ? -1 : (hit < 54) ? -2 : -2;
         if (ball.x < PAD1_X + PAD_W + 2) ball.x = PAD1_X + PAD_W + 2;
     }
 
     /* Colisión paleta derecha */
     if (collide(&ball, PAD2_X, pad[1].y)) {
         int hit = (pad[1].y + PAD_H) - ball.y;
-        int spd = 4 + (++hit_count);
-        if (spd > 25) spd = 25;
+        int spd = 2 + (++hit_count);
+        if (spd > 7) spd = 7;   /* dx < BALL_SZ → solapamiento garantizado */
         ball.dx = -spd;
-        ball.dy = (hit < 8) ? 4 : (hit < 16) ? 3 : (hit < 24) ? 2 :
+        ball.dy = (hit < 8) ? 2 : (hit < 16) ? 2 : (hit < 24) ? 1 :
                   (hit < 30) ? 1 : (hit < 32) ? 0 : (hit < 38) ? -1 :
-                  (hit < 46) ? -2 : (hit < 54) ? -3 : -4;
+                  (hit < 46) ? -1 : (hit < 54) ? -2 : -2;
         if (ball.x > PAD2_X - BALL_SZ - 2) ball.x = PAD2_X - BALL_SZ - 2;
     }
 }
@@ -880,16 +968,29 @@ static void render_frame(void)
     case ST_MENU:
         if (needs_full_redraw) {
             fb_clear(COL_BLACK);
-            if (sprites_ok)
-                fb_blit_scaled(192, 40, SPR_LOGO_W, SPR_LOGO_H, DDR2_SPR_LOGO, 1, 4);
+            if (load_step >= 4)
+                /* 64×13 px × scale 5 = 320×65 px, centrado en 640 */
+                fb_blit_scaled(160, 30, SPR_LOGO_W, 13, DDR2_SPR_LOGO, 1, 5);
+            else
+                fb_draw_str(221, 30, "PONG", 12, COL_WHITE);
             needs_full_redraw = 0;
             prev_selected = -1;
         }
         if (prev_selected != selected) {
-            fb_fill_rect(220, 175, 200, 45, (selected == 0) ? COL_YELLOW : COL_DGRAY);
-            fb_draw_digit(312, 183, 1, 6, COL_BLACK);
-            fb_fill_rect(220, 260, 200, 45, (selected == 1) ? COL_YELLOW : COL_DGRAY);
-            fb_draw_digit(312, 268, 2, 6, COL_BLACK);
+            if (msel_loaded) {
+                /* Sprite mode_select 200×112 × scale2 = 400×224, x=120 y=128 */
+                /* Cluster 1P: stored y=22-36 → display y=172-200 */
+                /* Cluster 2P: stored y=55-69 → display y=238-266 */
+                fb_fill_rect(120, 128, 400, 224, COL_BLACK);
+                if (selected==0) fb_fill_rect(120, 167, 400, 38, COL_BLUE);
+                else             fb_fill_rect(120, 233, 400, 38, COL_BLUE);
+                fb_blit_scaled(120, 128, SPR_MSEL_W, SPR_MSEL_H, DDR2_SPR_MSEL, 1, 2);
+            } else {
+                fb_fill_rect(220, 175, 200, 45, (selected == 0) ? COL_YELLOW : COL_DGRAY);
+                fb_draw_digit(312, 183, 1, 6, COL_BLACK);
+                fb_fill_rect(220, 260, 200, 45, (selected == 1) ? COL_YELLOW : COL_DGRAY);
+                fb_draw_digit(312, 268, 2, 6, COL_BLACK);
+            }
             prev_selected = selected;
         }
         break;
@@ -910,10 +1011,18 @@ static void render_frame(void)
             prev_pad0_y = pad[0].y; prev_pad1_y = pad[1].y;
             needs_full_redraw = 0;
             if (game_state == ST_PAUSE) {
-                fb_fill_rect(220, 175, 200, 45, (selected == 0) ? COL_YELLOW : COL_DGRAY);
-                fb_draw_str(249, 187, "REANUDAR", 4, COL_BLACK);
-                fb_fill_rect(220, 260, 200, 45, (selected == 1) ? COL_YELLOW : COL_DGRAY);
-                fb_draw_str(276, 272, "SALIR", 4, COL_BLACK);
+                if (pause_loaded) {
+                    /* pause sprite 200×80 ×2 = 400×160, centrado: x=120 y=160 */
+                    fb_fill_rect(120, 160, 400, 160, COL_BLACK);
+                    if (selected==0) fb_fill_rect(120, 175, 400, 49, COL_BLUE);
+                    else             fb_fill_rect(120, 255, 400, 49, COL_BLUE);
+                    fb_blit_scaled(120, 160, SPR_PAUSE_W, SPR_PAUSE_H, DDR2_SPR_PAUSE, 1, 2);
+                } else {
+                    fb_fill_rect(220, 175, 200, 45, (selected==0) ? COL_YELLOW : COL_DGRAY);
+                    fb_draw_str(249, 187, "REANUDAR", 4, COL_BLACK);
+                    fb_fill_rect(220, 260, 200, 45, (selected==1) ? COL_YELLOW : COL_DGRAY);
+                    fb_draw_str(276, 272, "SALIR", 4, COL_BLACK);
+                }
                 prev_selected = selected;
             }
             break;
@@ -939,9 +1048,9 @@ static void render_frame(void)
                 int ovx = (old_bx + BALL_SZ > ball.x && ball.x + BALL_SZ > old_bx);
                 int ovy = (old_by + BALL_SZ > ball.y && ball.y + BALL_SZ > old_by);
                 if (!(ovx && ovy)) {
-                    /* Sin overlap: borrar vieja entera, dibujar nueva */
-                    fb_fill_rect(old_bx, old_by, BALL_SZ, BALL_SZ, COL_BLACK);
+                    /* Sin overlap: nueva primero — pelota nunca invisible */
                     fb_fill_rect(ball.x,  ball.y,  BALL_SZ, BALL_SZ, COL_WHITE);
+                    fb_fill_rect(old_bx, old_by, BALL_SZ, BALL_SZ, COL_BLACK);
                 } else {
                     /* Con overlap parcial: dibujar nueva, borrar filas no solapadas */
                     fb_fill_rect(ball.x, ball.y, BALL_SZ, BALL_SZ, COL_WHITE);
@@ -994,10 +1103,17 @@ static void render_frame(void)
 
         /* Overlay de pausa: solo cuando cambió la selección */
         if (game_state == ST_PAUSE && prev_selected != selected) {
-            fb_fill_rect(220, 175, 200, 45, (selected == 0) ? COL_YELLOW : COL_DGRAY);
-            fb_draw_str(249, 187, "REANUDAR", 4, COL_BLACK);
-            fb_fill_rect(220, 260, 200, 45, (selected == 1) ? COL_YELLOW : COL_DGRAY);
-            fb_draw_str(276, 272, "SALIR", 4, COL_BLACK);
+            if (pause_loaded) {
+                fb_fill_rect(120, 160, 400, 160, COL_BLACK);
+                if (selected==0) fb_fill_rect(120, 175, 400, 49, COL_BLUE);
+                else             fb_fill_rect(120, 255, 400, 49, COL_BLUE);
+                fb_blit_scaled(120, 160, SPR_PAUSE_W, SPR_PAUSE_H, DDR2_SPR_PAUSE, 1, 2);
+            } else {
+                fb_fill_rect(220, 175, 200, 45, (selected==0) ? COL_YELLOW : COL_DGRAY);
+                fb_draw_str(249, 187, "REANUDAR", 4, COL_BLACK);
+                fb_fill_rect(220, 260, 200, 45, (selected==1) ? COL_YELLOW : COL_DGRAY);
+                fb_draw_str(276, 272, "SALIR", 4, COL_BLACK);
+            }
             prev_selected = selected;
         }
         break;
@@ -1007,12 +1123,16 @@ static void render_frame(void)
         if (needs_full_redraw) {
             fb_clear(COL_BLACK);
             {
-                /* MID (offset 1) = Player 2 Wins → humano gana (selected==1)
-                   BOT (offset 2) = Computer Wins → IA gana  (selected==0) */
-                int sec = (selected == 1) ? 1 : 2;
+                /* TOP=P1Wins, MID=P2Wins, BOT=ComputerWins
+                   selected: 0=izq gana, 1=der gana */
+                int sec;
+                if (!mode_2p)
+                    sec = (selected == 1) ? 0 : 2; /* 1P: humano=P1Wins, IA=ComputerWins */
+                else
+                    sec = (selected == 1) ? 0 : 1; /* 2P: maestro=P1Wins, esclavo=P2Wins */
                 const u8 *spr = DDR2_SPR_GAMEOVER + sec * SPR_GO_SEC_BYTES;
-                /* 160×75 ×3 = 480×225, centrado en 640×480 */
-                fb_blit_scaled(80, 127, SPR_GO_W, SPR_GO_SEC_H, spr, 0, 3);
+                /* 200×75 ×3 = 600×225, centrado: x=20 y=90 */
+                fb_blit_scaled(20, 90, SPR_GO_W, SPR_GO_SEC_H, spr, 0, 3);
             }
             needs_full_redraw = 0;
         }
@@ -1117,7 +1237,7 @@ int main(void)
 
     /* GPIO0: botones (ch1 in) + SW (ch2 in) */
     XGpio_Initialize(&gpio0, XPAR_AXI_GPIO_0_BASEADDR);
-    XGpio_SetDataDirection(&gpio0, 1, 0x1Fu);
+    XGpio_SetDataDirection(&gpio0, 1, 0x3Fu);  /* 6 bits entrada: [5]=vsync [4:0]=botones */
     XGpio_SetDataDirection(&gpio0, 2, 0x01u);
 
     /* GPIO1: LEDs (ch1 out) */
@@ -1206,7 +1326,6 @@ int main(void)
 
         wait_vsync();
         render_frame();
-        usleep(8000);
     }
 
     return 0;
