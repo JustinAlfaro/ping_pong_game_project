@@ -2,14 +2,21 @@
  * @title Top-level — Sistema Embebido Pong Multijugador (Framebuffer)
  * @file top_pong_project.v
  * @brief Integra el SoC MicroBlaze V con el subsistema VGA basado en framebuffer BRAM.
+ *        Soporta modo 1 jugador (con IA) y modo 2 jugadores split-screen vía SPI entre FPGAs.
  * @details
  *   Arquitectura:
- *     SD card ──SPI──► MicroBlaze ──AXI──► BRAM framebuffer ──Port B──► VGA ──► monitor
- *                           └──AXI──► DDR2 (sprites + variables)
+ *     SD card ──SPI1──► MicroBlaze ──AXI──► BRAM framebuffer ──Port B──► VGA ──► monitor
+ *                            └──AXI──► DDR2 (sprites + variables de juego)
+ *                            └──SPI0──► PMOD JA ──► segunda FPGA (modo 2P)
  *
  *   Framebuffer: 640×480 × 4-bit = 38 400 palabras de 32 bits en BRAM True Dual Port.
  *   MicroBlaze escribe por Port A (32-bit AXI). El VGA lee por Port B en cada pixel.
  *   Empaquetado: word[31:28]=píxel 0 ... word[3:0]=píxel 7 (big-endian).
+ *
+ *   Modo 2P split-screen:
+ *     Cada FPGA renderiza un campo de 640×480 del tablero virtual de 1280×480.
+ *     El Maestro (SW0=0) controla la física y envía estado vía SPI0 @ 6.25 MHz.
+ *     El Esclavo (SW0=1) controla la paleta derecha y responde con su posición Y.
  *
  *   Pipeline VGA (1 ciclo a 100 MHz):
  *     Ciclo 0: addr = f(h_count, v_count) combinacional → BRAM inicia lectura
@@ -17,7 +24,7 @@
  *     Ciclo 1+: paleta aplica y pixel_mux saca RGB
  *
  * @author JustinAlfaro
- * @date 2026-06-11
+ * @date 2026-06-23
  */
 
 `timescale 1ns / 1ps
@@ -87,8 +94,6 @@ wire [15:0] led_gpio;
 assign LED[15]  = ddr2_calib_done;
 assign LED[14:0] = led_gpio[14:0];
 
-// SPI inter-FPGA: SCK en Z (sck_io del wrapper pendiente de verificar en modo 2P)
-assign SPI_SCK  = 1'bz;
 // SD_RESET debe estar en 0: el config controller libera la SD tras arrancar y esta señal la saca de reset
 assign SD_RESET = 1'b0;
 
@@ -147,7 +152,8 @@ microblaze_v_wrapper u_soc (
     .uart_rtl_0_rxd         (UART_RXD_OUT),
     .uart_rtl_0_txd         (UART_TXD_IN),
 
-    // SPI inter-FPGA (AXI Quad SPI 0) — sck_io no existe en wrapper (Vivado omite SCK)
+    // SPI inter-FPGA (AXI Quad SPI 0)
+    .spi_rtl_0_sck_io       (SPI_SCK),
     .spi_rtl_0_io0_io       (SPI_MOSI),
     .spi_rtl_0_io1_io       (SPI_MISO),
     .spi_rtl_0_ss_io        (SPI_CS_N),

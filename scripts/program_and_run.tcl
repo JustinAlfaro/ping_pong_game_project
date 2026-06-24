@@ -1,36 +1,51 @@
-# program_and_run.tcl — programa bitstream + ELF y arranca el juego
-# Uso: xsdb scripts/program_and_run.tcl
+# program_and_run.tcl — Programa bitstream + ELF en una sola Nexys A7-100T (modo 1P)
+#
+# Uso (desde la raíz del repo):
+#   xsdb scripts/program_and_run.tcl
+#
+# El ELF se busca en orden:
+#   1. <repo_root>/../pong_workspace/pong_app/build/pong_app.elf  (workspace estándar)
+#   2. <repo_root>/pong_workspace/pong_app/build/pong_app.elf     (alternativo)
 
-# Bitstream más reciente generado por HoG
-set candidates [lsort -decreasing [glob -nocomplain "bin/*/*.bit"]]
+set repo_root [file normalize [file join [file dirname [info script]] ".."]]
+
+set candidates [lsort -decreasing [glob -nocomplain [file join $repo_root "bin" "*" "*.bit"]]]
 if {[llength $candidates] == 0} {
-    puts "ERROR: No se encontro ningun bitstream en bin/"
+    puts "ERROR: No se encontró ningún bitstream en bin/"
+    puts "       Genera primero el bitstream con:  bash scripts/build_all.sh"
     exit 1
 }
-set bitstream [file normalize [lindex $candidates 0]]
-puts "INFO: Bitstream: $bitstream"
+set bit [file normalize [lindex $candidates 0]]
 
-# ELF precompilado (generado por Vitis)
-set elf [file normalize "/home/alpha/Documentos/Proyecto_2/pong_workspace/pong_app/build/pong_app.elf"]
-if {![file exists $elf]} {
-    set elf [file normalize "/home/alpha/Documentos/Proyecto_2/pong_app/build/pong_app.elf"]
+set elf_candidates [list \
+    [file normalize [file join $repo_root ".." "pong_workspace" "pong_app" "build" "pong_app.elf"]] \
+    [file normalize [file join $repo_root "pong_workspace" "pong_app" "build" "pong_app.elf"]] \
+]
+set elf ""
+foreach c $elf_candidates {
+    if {[file exists $c]} { set elf $c; break }
 }
-puts "INFO: ELF: $elf"
+
+if {$elf eq ""} {
+    puts "ERROR: ELF no encontrado. Compila primero con:  bash scripts/build_vitis.sh"
+    exit 1
+}
+
+puts "INFO: Bitstream : $bit"
+puts "INFO: ELF       : $elf"
 
 connect
 puts "INFO: Programando bitstream..."
-fpga -f $bitstream
-after 2000
+fpga -f $bit
+puts "INFO: Esperando calibración MIG DDR2 (4 s)..."
+after 4000
 
 targets -set -filter {name =~ "*Hart*"}
 rst -processor
 after 500
-
-puts "INFO: Descargando ELF..."
 dow $elf
 after 500
-
-puts "INFO: Arrancando CPU..."
+rwr pc 0x0
 con
 
-puts "DONE: Pong corriendo."
+puts "DONE: Pong corriendo. SW0=OFF para modo 1P."

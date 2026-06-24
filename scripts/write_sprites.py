@@ -116,15 +116,12 @@ def main():
     repo_root  = script_dir.parent
     asset_dir  = repo_root / 'assets'
 
-    # ── Verificar magic en LBA1 ───────────────────────────────────────────────
+    # ── Escribir magic "PONG" en LBA1 ────────────────────────────────────────
     if not dry_run:
-        with open(dev, 'rb') as f:
-            f.seek(1 * 512)
-            magic = f.read(4)
-        if magic != b'PONG':
-            print(f"AVISO: Magic en LBA1 es {magic!r}, no 'PONG'. Continuando...")
-        else:
-            print("INFO: Magic PONG en LBA1 confirmado.")
+        magic_sector = bytearray(512)
+        magic_sector[0:4] = b'PONG'
+        write_sector(dev, 1, bytes(magic_sector))
+        print("INFO: Magic PONG escrito en LBA1.")
 
     written = []
 
