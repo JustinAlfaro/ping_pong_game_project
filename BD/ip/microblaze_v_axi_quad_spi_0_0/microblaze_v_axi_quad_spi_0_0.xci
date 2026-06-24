@@ -8,7 +8,7 @@
     "gen_directory": "../../../../../../pong_project.gen/sources_1/bd/microblaze_v/ip/microblaze_v_axi_quad_spi_0_0",
     "parameters": {
       "component_parameters": {
-        "C_SPI_MEMORY": [ { "value": "1", "resolve_type": "user", "format": "long", "usage": "all" } ],
+        "C_SPI_MEMORY": [ { "value": "0", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "C_USE_STARTUP": [ { "value": "0", "value_src": "user", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "C_USE_STARTUP_INT": [ { "value": "0", "resolve_type": "user", "format": "long", "enabled": false, "usage": "all" } ],
         "C_SPI_MODE": [ { "value": "0", "resolve_type": "user", "format": "long", "usage": "all" } ],
@@ -61,7 +61,7 @@
         "C_SPI_MODE": [ { "value": "0", "resolve_type": "generated", "format": "long", "usage": "all" } ],
         "C_USE_STARTUP": [ { "value": "0", "resolve_type": "generated", "format": "long", "usage": "all" } ],
         "C_USE_STARTUP_EXT": [ { "value": "0", "resolve_type": "generated", "format": "long", "usage": "all" } ],
-        "C_SPI_MEMORY": [ { "value": "1", "resolve_type": "generated", "format": "long", "usage": "all" } ],
+        "C_SPI_MEMORY": [ { "value": "0", "resolve_type": "generated", "format": "long", "usage": "all" } ],
         "C_S_AXI_ADDR_WIDTH": [ { "value": "7", "format": "long", "usage": "all" } ],
         "C_S_AXI_DATA_WIDTH": [ { "value": "32", "format": "long", "usage": "all" } ],
         "C_S_AXI4_ADDR_WIDTH": [ { "value": "24", "format": "long", "usage": "all" } ],
