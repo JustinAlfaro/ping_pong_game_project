@@ -11,6 +11,22 @@ set out_dir   [file normalize "$repo_path/bin/build_latest"]
 puts "INFO: Abriendo proyecto $proj_file ..."
 open_project $proj_file
 
+# Actualizar IPs obsoletas y generar wrapper del BD.
+# Necesario en máquinas de compañeros donde las revisiones del catálogo IP
+# difieren de las almacenadas en los .xci del repo, bloqueando el BD.
+puts "INFO: Actualizando IPs obsoletas ..."
+upgrade_ip -quiet [get_ips -all]
+
+puts "INFO: Generando productos del Block Design ..."
+set bd_file [get_files */microblaze_v.bd]
+generate_target all $bd_file -force
+
+set wrapper_file [get_files -quiet *microblaze_v_wrapper*]
+if {[llength $wrapper_file] == 0} {
+    set wrapper_path [make_wrapper -files $bd_file -top -force]
+    add_files -norecurse $wrapper_path
+}
+
 # Fuerza re-síntesis para asegurar que el HDL nuevo se incluye
 puts "INFO: Reseteando runs para forzar re-síntesis..."
 reset_run synth_1
