@@ -23,6 +23,9 @@ Thumbs.db
 **.tmp
 !/.gitignore
 bin
+!bin/
+!bin/build_latest/
+!bin/build_latest/top_pong_project.bit
 gitk
 *~
 **.pyc
