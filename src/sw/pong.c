@@ -31,13 +31,25 @@
 #endif
 
 /* ── Framebuffer ──────────────────────────────────────────────────────────── */
-#define FB_BASE  XPAR_AXI_BRAM_CTRL_0_BASEADDR
+#if defined(XPAR_AXI_BRAM_CTRL_0_BASEADDR)
+#  define FB_BASE  XPAR_AXI_BRAM_CTRL_0_BASEADDR
+#elif defined(XPAR_AXI_BRAM_CTRL_0_S_AXI_BASEADDR)
+#  define FB_BASE  XPAR_AXI_BRAM_CTRL_0_S_AXI_BASEADDR
+#else
+#  define FB_BASE  0xC0000000UL
+#endif
 #define FB_W     640
 #define FB_H     480
 #define FB_WORDS 38400   /* (640×480) / 8 */
 
 /* ── DDR2 (MIG 7-series, calibración automática al arrancar) ────────────── */
-#define DDR2_BASE       XPAR_MIG_0_BASEADDRESS
+#if defined(XPAR_MIG_0_BASEADDRESS)
+#  define DDR2_BASE  XPAR_MIG_0_BASEADDRESS
+#elif defined(XPAR_MIG7SERIES_0_BASEADDR)
+#  define DDR2_BASE  XPAR_MIG7SERIES_0_BASEADDR
+#else
+#  define DDR2_BASE  0x80000000UL
+#endif
 #define DDR2_SPR_BALL   ((u8 *)(DDR2_BASE + 0x40000UL))  /* 32 B,  tras 256 KB de código */
 #define DDR2_SPR_PADDLE ((u8 *)(DDR2_BASE + 0x40020UL))  /* 240 B */
 #define DDR2_SPR_LOGO     ((u8 *)(DDR2_BASE + 0x40110UL))  /* 512 B */
@@ -309,60 +321,124 @@ static void fb_draw_scores(void)
     fb_draw_digit(360, 8, score[1], 6, COL_WHITE);
 }
 
-/* Devuelve el color de fondo estático en (x,y).
-   Conoce la línea central y los dígitos del marcador para poder
-   restaurar el fondo exacto al borrar la pelota sin redibujarlo. */
-static u8 bg_pixel(int x, int y)
+/* Borra un strip rectangular a negro y restaura los elementos del fondo
+ * que caen dentro de ese strip (línea central, paletas, dígitos). */
+static void restore_bg_strip(int x, int y, int w, int h)
 {
-    /* Línea central: 4px gris / 4px negro alternados en bloques de 8 */
-    if (!mode_2p && x >= 318 && x < 322 && (y & 7) < 4) return COL_GRAY;
-    /* Dígito izquierdo (256,8) escala 6 → celdas de 6×6 px */
-    if (x >= 256 && x < 280 && y >= 8 && y < 38) {
-        u8 p = font4x5[score[0] % 10][(y - 8) / 6];
-        if (p & (0x8u >> ((x - 256) / 6))) return COL_WHITE;
+    fb_fill_rect(x, y, w, h, COL_BLACK);
+    if (!mode_2p && x < 322 && x + w > 318) {
+        int ry = y & ~7;
+        for (; ry < y + h; ry += 8) {
+            int y0 = ry     > y     ? ry     : y;
+            int y1 = ry + 4 < y + h ? ry + 4 : y + h;
+            if (y0 < y1) fb_fill_rect(318, y0, 4, y1 - y0, COL_GRAY);
+        }
     }
-    /* Dígito derecho (360,8) escala 6 */
-    if (x >= 360 && x < 384 && y >= 8 && y < 38) {
-        u8 p = font4x5[score[1] % 10][(y - 8) / 6];
-        if (p & (0x8u >> ((x - 360) / 6))) return COL_WHITE;
+    if ((!mode_2p || !is_slave) && x < PAD1_X + PAD_W && x + w > PAD1_X) {
+        int iy1 = y > pad[0].y           ? y : pad[0].y;
+        int iy2 = y + h < pad[0].y+PAD_H ? y + h : pad[0].y + PAD_H;
+        if (iy1 < iy2) fb_fill_rect(PAD1_X, iy1, PAD_W, iy2-iy1, COL_WHITE);
     }
-    /* Paletas visibles en esta pantalla */
-    if ((!mode_2p || !is_slave) && x >= PAD1_X && x < PAD1_X + PAD_W &&
-        y >= pad[0].y && y < pad[0].y + PAD_H) return COL_WHITE;
-    if ((!mode_2p || is_slave) && x >= PAD2_X && x < PAD2_X + PAD_W &&
-        y >= pad[1].y && y < pad[1].y + PAD_H) return COL_WHITE;
-    return COL_BLACK;
-}
-
-/* Escribe un solo píxel con RMW (para restauración de fondo). */
-static void fb_set_pixel(int x, int y, u8 color)
-{
-    u32 pidx  = (u32)y * FB_W + x;
-    u32 addr  = FB_BASE + ((pidx >> 3) << 2);
-    u32 shift = (7u - (pidx & 7u)) * 4u;
-    u32 word  = Xil_In32(addr);
-    Xil_Out32(addr, (word & ~(0xFu << shift)) | ((u32)color << shift));
+    if ((!mode_2p || is_slave) && x < PAD2_X + PAD_W && x + w > PAD2_X) {
+        int iy1 = y > pad[1].y           ? y : pad[1].y;
+        int iy2 = y + h < pad[1].y+PAD_H ? y + h : pad[1].y + PAD_H;
+        if (iy1 < iy2) fb_fill_rect(PAD2_X, iy1, PAD_W, iy2-iy1, COL_WHITE);
+    }
 }
 
 /*
  * Blit de sprite 4-bit (high nibble = px izquierdo) al framebuffer.
  * Si transparent != 0, los píxeles con valor 0 (negro) no se escriben.
  */
-/* Blit con escala entera (sc=1 → 1:1, sc=4 → cada px del sprite = 4×4 en FB).
- * Agrupa runs consecutivos del mismo color en un solo fb_fill_rect para reducir
- * operaciones RMW en BRAM de O(w*h) a O(runs), crítico sin data cache. */
+/* Blit con escala entera. Fast-path para sc=2 con x alineado a 8 píxeles FB:
+ * empaqueta 4 píxeles del sprite en 1 word FB (32 bits) y lo escribe sin
+ * leer BRAM cuando todos los píxeles del grupo son opacos. Reduce writes y
+ * elimina casi todos los RMW de BRAM comparado con la ruta fill_rect. */
 static void fb_blit_scaled(int x, int y, int w, int h, const u8 *spr, int transparent, int sc)
 {
+    /* ── Fast path: sc=2, x alineado a word FB (x%8==0) ── */
+    if (sc == 2 && (x & 7) == 0) {
+        for (int row = 0; row < h; row++) {
+            u32 cword = 0; int cbase = -4;
+            int col = 0;
+            while (col + 4 <= w) {
+                /* Leer 2 bytes del sprite (4 píxeles) desde DDR2 con caché */
+                int bi0 = (row * w + col) >> 1;
+                int wb0 = bi0 & ~3;
+                if (wb0 != cbase) { cword = Xil_In32((u32)(uintptr_t)(spr + wb0)); cbase = wb0; }
+                u8 b0 = (cword >> ((bi0 & 3) << 3)) & 0xFF;
+
+                int bi1 = bi0 + 1, wb1 = bi1 & ~3;
+                if (wb1 != cbase) { cword = Xil_In32((u32)(uintptr_t)(spr + wb1)); cbase = wb1; }
+                u8 b1 = (cword >> ((bi1 & 3) << 3)) & 0xFF;
+
+                u8 p0 = b0 >> 4, p1 = b0 & 0xF, p2 = b1 >> 4, p3 = b1 & 0xF;
+
+                /* Empaquetar en word FB: cada px → 2 nibbles adyacentes */
+                u32 pval = ((u32)p0<<28)|((u32)p0<<24)|((u32)p1<<20)|((u32)p1<<16)
+                          |((u32)p2<<12)|((u32)p2<< 8)|((u32)p3<< 4)| (u32)p3;
+                u32 mask = 0;
+                if (transparent) {
+                    if (p0) mask |= 0xFF000000u;
+                    if (p1) mask |= 0x00FF0000u;
+                    if (p2) mask |= 0x0000FF00u;
+                    if (p3) mask |= 0x000000FFu;
+                } else { mask = 0xFFFFFFFFu; }
+
+                if (mask) {
+                    u32 fa = FB_BASE + (((u32)(y + row*2)   * FB_W + x + col*2) >> 3) * 4;
+                    u32 fb_ = FB_BASE + (((u32)(y + row*2+1) * FB_W + x + col*2) >> 3) * 4;
+                    if (mask == 0xFFFFFFFFu) {
+                        Xil_Out32(fa,  pval);
+                        Xil_Out32(fb_, pval);
+                    } else {
+                        Xil_Out32(fa,  (Xil_In32(fa)  & ~mask) | (pval & mask));
+                        Xil_Out32(fb_, (Xil_In32(fb_) & ~mask) | (pval & mask));
+                    }
+                }
+                col += 4;
+            }
+            /* Píxeles restantes (< 4) con ruta genérica */
+            while (col < w) {
+                int idx = row * w + col;
+                int bi = idx >> 1, wb = bi & ~3;
+                if (wb != cbase) { cword = Xil_In32((u32)(uintptr_t)(spr + wb)); cbase = wb; }
+                u8 cur = (cword >> ((bi & 3) << 3)) & 0xFF;
+                u8 px  = (idx & 1) ? (cur & 0xF) : (cur >> 4);
+                if (!transparent || px) fb_fill_rect(x + col*2, y + row*2, 2, 2, px);
+                col++;
+            }
+        }
+        return;
+    }
+
+    /* ── Ruta genérica: cualquier sc, cualquier x ── */
     for (int row = 0; row < h; row++) {
         int col = 0;
+        u32 cword = 0;
+        int cbase = -4;
         while (col < w) {
-            int idx = row * w + col;
-            u8  px  = (idx & 1) ? (spr[idx >> 1] & 0xF) : (spr[idx >> 1] >> 4);
+            int idx   = row * w + col;
+            int bi    = idx >> 1;
+            int wbase = bi & ~3;
+            if (wbase != cbase) {
+                cword = Xil_In32((u32)(uintptr_t)(spr + wbase));
+                cbase = wbase;
+            }
+            u8 cur = (cword >> ((bi & 3) << 3)) & 0xFF;
+            u8 px  = (idx & 1) ? (cur & 0xF) : (cur >> 4);
             if (transparent && px == 0) { col++; continue; }
             int run = 1;
             while (col + run < w) {
-                int idx2 = row * w + col + run;
-                u8  px2  = (idx2 & 1) ? (spr[idx2 >> 1] & 0xF) : (spr[idx2 >> 1] >> 4);
+                int idx2   = idx + run;
+                int bi2    = idx2 >> 1;
+                int wbase2 = bi2 & ~3;
+                if (wbase2 != cbase) {
+                    cword = Xil_In32((u32)(uintptr_t)(spr + wbase2));
+                    cbase = wbase2;
+                }
+                u8 b2  = (cword >> ((bi2 & 3) << 3)) & 0xFF;
+                u8 px2 = (idx2 & 1) ? (b2 & 0xF) : (b2 >> 4);
                 if (px2 != px) break;
                 run++;
             }
@@ -995,12 +1071,26 @@ static void render_frame(void)
         if (prev_selected != selected) {
             if (msel_loaded) {
                 /* Sprite mode_select 200×112 × scale2 = 400×224, x=120 y=128 */
-                /* Cluster 1P: stored y=22-36 → display y=172-200 */
-                /* Cluster 2P: stored y=55-69 → display y=238-266 */
-                fb_fill_rect(120, 128, 400, 224, COL_BLACK);
-                if (selected==0) fb_fill_rect(120, 167, 400, 38, COL_BLUE);
-                else             fb_fill_rect(120, 233, 400, 38, COL_BLUE);
-                fb_blit_scaled(120, 128, SPR_MSEL_W, SPR_MSEL_H, DDR2_SPR_MSEL, 1, 2);
+                /* Highlight 1P: display y=167, h=38. Highlight 2P: display y=233, h=38 */
+                static const int hl_y[2] = {167, 233};
+                if (prev_selected < 0) {
+                    /* Primera entrada al menú: blit completo (pantalla ya limpia) */
+                    if (selected==0) fb_fill_rect(120, 167, 400, 38, COL_BLUE);
+                    else             fb_fill_rect(120, 233, 400, 38, COL_BLUE);
+                    fb_blit_scaled(120, 128, SPR_MSEL_W, SPR_MSEL_H, DDR2_SPR_MSEL, 1, 2);
+                } else {
+                    /* Cambio de botón: reblit solo las 2 franjas afectadas (~3× más rápido).
+                     * 38 display px / scale 2 = 19 sprite rows por franja. */
+                    const int spr_rows = 19;
+                    fb_fill_rect(120, hl_y[prev_selected], 400, 38, COL_BLACK);
+                    fb_blit_scaled(120, hl_y[prev_selected], SPR_MSEL_W, spr_rows,
+                                   DDR2_SPR_MSEL + ((hl_y[prev_selected]-128)/2) * (SPR_MSEL_W/2),
+                                   1, 2);
+                    fb_fill_rect(120, hl_y[selected], 400, 38, COL_BLUE);
+                    fb_blit_scaled(120, hl_y[selected], SPR_MSEL_W, spr_rows,
+                                   DDR2_SPR_MSEL + ((hl_y[selected]-128)/2) * (SPR_MSEL_W/2),
+                                   1, 2);
+                }
             } else {
                 fb_fill_rect(220, 175, 200, 45, (selected == 0) ? COL_YELLOW : COL_DGRAY);
                 fb_draw_digit(312, 183, 1, 6, COL_BLACK);
@@ -1051,89 +1141,64 @@ static void render_frame(void)
             break;
         }
 
-        /* Render incremental de la pelota (coordenadas de pantalla según rol) */
+        /* ── Rendering incremental: smart erase — nunca toca la intersección ── */
         {
-            int old_bsx, new_bsx, old_vis, new_vis;
+            int old_bsx, old_vis, new_bsx, new_vis;
             if (!mode_2p) {
-                old_bsx = prev_ball_x; new_bsx = ball.x;
-                old_vis = new_vis = 1;
+                old_bsx = prev_ball_x; old_vis = 1;
+                new_bsx = ball.x;      new_vis = 1;
             } else if (!is_slave) {
-                old_bsx = prev_ball_x;        new_bsx = ball.x;
-                old_vis = (prev_ball_x < FB_W); new_vis = (ball.x < FB_W);
+                old_bsx = prev_ball_x; old_vis = (prev_ball_x < FB_W);
+                new_bsx = ball.x;      new_vis = (ball.x < FB_W);
             } else {
-                old_bsx = prev_ball_x - FB_W;  new_bsx = ball.x - FB_W;
-                old_vis = (prev_ball_x >= FB_W); new_vis = (ball.x >= FB_W);
+                old_bsx = prev_ball_x - FB_W; old_vis = (prev_ball_x >= FB_W);
+                new_bsx = ball.x - FB_W;      new_vis = (ball.x >= FB_W);
             }
-            int old_by = prev_ball_y;
 
-            if ((old_vis || new_vis) && (new_bsx != old_bsx || ball.y != old_by)) {
-                if (old_vis && new_vis) {
-                    int lpad_x = (!mode_2p || !is_slave) ? PAD1_X : -99;
-                    int lpad_y = (!mode_2p || !is_slave) ? pad[0].y : 0;
-                    int rpad_x = (!mode_2p || is_slave)  ? PAD2_X : -99;
-                    int rpad_y = (!mode_2p || is_slave)  ? pad[1].y : 0;
-                    int special = (old_by < 42) ||
-                                  (!mode_2p && old_bsx < 322 && old_bsx + BALL_SZ > 318) ||
-                                  (old_bsx + BALL_SZ > lpad_x && old_bsx < lpad_x + PAD_W &&
-                                   old_by + BALL_SZ > lpad_y && old_by < lpad_y + PAD_H) ||
-                                  (old_bsx + BALL_SZ > rpad_x && old_bsx < rpad_x + PAD_W &&
-                                   old_by + BALL_SZ > rpad_y && old_by < rpad_y + PAD_H);
-                    if (special) {
-                        fb_fill_rect(new_bsx, ball.y, BALL_SZ, BALL_SZ, COL_WHITE);
-                        for (int r = 0; r < BALL_SZ; r++)
-                            for (int d = 0; d < BALL_SZ; d++) {
-                                int px = old_bsx + d, py = old_by + r;
-                                if (px >= new_bsx && px < new_bsx + BALL_SZ &&
-                                    py >= ball.y  && py < ball.y  + BALL_SZ) continue;
-                                fb_set_pixel(px, py, bg_pixel(px, py));
-                            }
+            /* Paso 1: nueva pelota PRIMERO — visible en destino desde ya */
+            if (new_vis)
+                fb_fill_rect(new_bsx, ball.y, BALL_SZ, BALL_SZ, COL_WHITE);
+
+            /* Paso 2: borrar SOLO los strips de la posición anterior que no
+             * solapan con la nueva — la intersección nunca se toca (nunca negro) */
+            if (old_vis) {
+                int ob = prev_ball_y, oe = ob + BALL_SZ;
+                int ol = old_bsx,     ore = ol + BALL_SZ;
+
+                if (new_vis) {
+                    int iy1 = ball.y + BALL_SZ > ob && ball.y < oe
+                              ? (ball.y > ob ? ball.y : ob) : oe;
+                    int iy2 = ball.y + BALL_SZ < oe
+                              ? ball.y + BALL_SZ : oe;
+                    int ix1 = new_bsx + BALL_SZ > ol && new_bsx < ore
+                              ? (new_bsx > ol ? new_bsx : ol) : ore;
+                    int ix2 = new_bsx + BALL_SZ < ore
+                              ? new_bsx + BALL_SZ : ore;
+                    int have_ov = (iy1 < iy2) && (ix1 < ix2);
+
+                    if (have_ov) {
+                        if (ob < iy1)  restore_bg_strip(ol, ob,  BALL_SZ, iy1-ob);
+                        if (iy2 < oe)  restore_bg_strip(ol, iy2, BALL_SZ, oe-iy2);
+                        if (ol < ix1)  restore_bg_strip(ol, iy1, ix1-ol,  iy2-iy1);
+                        if (ix2 < ore) restore_bg_strip(ix2,iy1, ore-ix2, iy2-iy1);
                     } else {
-                        int ovx = (old_bsx + BALL_SZ > new_bsx && new_bsx + BALL_SZ > old_bsx);
-                        int ovy = (old_by  + BALL_SZ > ball.y  && ball.y  + BALL_SZ > old_by);
-                        if (!(ovx && ovy)) {
-                            fb_fill_rect(new_bsx, ball.y,  BALL_SZ, BALL_SZ, COL_WHITE);
-                            fb_fill_rect(old_bsx, old_by, BALL_SZ, BALL_SZ, COL_BLACK);
-                        } else {
-                            fb_fill_rect(new_bsx, ball.y, BALL_SZ, BALL_SZ, COL_WHITE);
-                            for (int r = 0; r < BALL_SZ; r++) {
-                                int py = old_by + r;
-                                if (py >= ball.y && py < ball.y + BALL_SZ) {
-                                    if (new_bsx > old_bsx)
-                                        fb_fill_rect(old_bsx, py, new_bsx - old_bsx, 1, COL_BLACK);
-                                    if (new_bsx + BALL_SZ < old_bsx + BALL_SZ)
-                                        fb_fill_rect(new_bsx + BALL_SZ, py,
-                                                     (old_bsx + BALL_SZ) - (new_bsx + BALL_SZ), 1, COL_BLACK);
-                                } else {
-                                    fb_fill_rect(old_bsx, py, BALL_SZ, 1, COL_BLACK);
-                                }
-                            }
-                        }
-                    }
-                } else if (old_vis) {
-                    /* Pelota salió de esta pantalla: borrar posición anterior */
-                    int lpad_x2 = (!mode_2p || !is_slave) ? PAD1_X : -99;
-                    int lpad_y2 = (!mode_2p || !is_slave) ? pad[0].y : 0;
-                    int rpad_x2 = (!mode_2p || is_slave)  ? PAD2_X : -99;
-                    int rpad_y2 = (!mode_2p || is_slave)  ? pad[1].y : 0;
-                    int special = (old_by < 42) ||
-                                  (!mode_2p && old_bsx < 322 && old_bsx + BALL_SZ > 318) ||
-                                  (old_bsx + BALL_SZ > lpad_x2 && old_bsx < lpad_x2 + PAD_W &&
-                                   old_by + BALL_SZ > lpad_y2 && old_by < lpad_y2 + PAD_H) ||
-                                  (old_bsx + BALL_SZ > rpad_x2 && old_bsx < rpad_x2 + PAD_W &&
-                                   old_by + BALL_SZ > rpad_y2 && old_by < rpad_y2 + PAD_H);
-                    if (special) {
-                        for (int r = 0; r < BALL_SZ; r++)
-                            for (int d = 0; d < BALL_SZ; d++)
-                                fb_set_pixel(old_bsx+d, old_by+r, bg_pixel(old_bsx+d, old_by+r));
-                    } else {
-                        fb_fill_rect(old_bsx, old_by, BALL_SZ, BALL_SZ, COL_BLACK);
+                        restore_bg_strip(ol, ob, BALL_SZ, BALL_SZ);
                     }
                 } else {
-                    /* Pelota entró en esta pantalla: dibujar nueva posición */
-                    fb_fill_rect(new_bsx, ball.y, BALL_SZ, BALL_SZ, COL_WHITE);
+                    restore_bg_strip(ol, ob, BALL_SZ, BALL_SZ);
                 }
+
+                /* Restaurar score UNA sola vez si la posición anterior lo tapaba */
+                if (ob < 38 && oe > 8 &&
+                    ((ol < 280 && ore > 256) || (ol < 384 && ore > 360)))
+                    fb_draw_scores();
             }
+
+            prev_ball_x = ball.x; prev_ball_y = ball.y;
         }
+
+        if (score_dirty) { fb_draw_scores(); score_dirty = 0; }
+
         /* Delta-rect paddles: solo la paleta propia de este FPGA */
         if ((!mode_2p || !is_slave) && pad[0].y != prev_pad0_y) {
             int dy = pad[0].y - prev_pad0_y;
@@ -1163,8 +1228,6 @@ static void render_frame(void)
             }
             prev_pad1_y = pad[1].y;
         }
-
-        prev_ball_x = ball.x; prev_ball_y = ball.y;
 
         /* Overlay de pausa: solo en maestro */
         if (!is_slave && game_state == ST_PAUSE && prev_selected != selected) {
@@ -1393,10 +1456,9 @@ static void slave_loop(void)
         if (lvl & BTN_D) move_local_pad(1, 0);
 
         update_leds();
-        render_frame();
 
-        /* Recargar TX sin TXRST. Byte 0 = pad[1].y>>1; bytes 1-7 = 0.
-           Solo byte 0 es fiable en modo esclavo AXI SPI. */
+        /* Recargar TX antes del RX drain: slv_btnc queda en FIFO listo para el
+           próximo spi_exchange del maestro, independientemente del vsync timing. */
         Xil_Out32(SPI2P_BASE + SPI_DTR, (u32)(pad[1].y >> 1));
         Xil_Out32(SPI2P_BASE + SPI_DTR, (u32)slv_btnc);
         Xil_Out32(SPI2P_BASE + SPI_DTR, 0u);
@@ -1405,8 +1467,7 @@ static void slave_loop(void)
         Xil_Out32(SPI2P_BASE + SPI_DTR, 0u);
         Xil_Out32(SPI2P_BASE + SPI_DTR, 0u);
 
-        /* Drenar RX DESPUÉS del TX reload: slv_btnc ya fue cargado en FIFO antes
-           de que rx_drain lo limpie. Solo aceptar estados válidos del maestro. */
+        /* Drenar RX: recibir estado más reciente del maestro antes de renderizar. */
         {
             u8 tmp[16];
             int n = 0;
@@ -1419,10 +1480,15 @@ static void slave_loop(void)
                 ball.y   = ((int)rx[2] << 8) | rx[3];
                 pad[0].y = ((int)rx[4] << 8) | rx[5];
                 int ns   = (rx[6] >> 4) & 0xF;
-                score[0] = rx[6] & 0xF;
+                int ns0  = rx[6] & 0xF;
+                int ns1  = rx[7] & 0xF;
                 selected = (rx[7] >> 4) & 0xF;
-                score[1] = rx[7] & 0xF;
-                score_dirty = 1;
+                if (ns0 != score[0] || ns1 != score[1]) {
+                    score_dirty       = 1;
+                    needs_full_redraw = 1;
+                }
+                score[0] = ns0;
+                score[1] = ns1;
                 if (ns >= ST_PLAYING && ns <= ST_GAMEOVER && ns != game_state) {
                     game_state        = ns;
                     needs_full_redraw = 1;
@@ -1431,7 +1497,10 @@ static void slave_loop(void)
             }
         }
 
+        /* Sincronizar al vsync ANTES de renderizar — igual que el master.
+           Elimina el tearing causado por renderizar durante el barrido activo. */
         wait_vsync();
+        render_frame();
         } /* while(1) */
     }
 

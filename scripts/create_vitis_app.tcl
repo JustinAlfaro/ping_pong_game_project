@@ -35,23 +35,34 @@ puts "INFO: XSA    : $xsa_path"
 setws $ws_path
 
 # ── Plataforma ─────────────────────────────────────────────────────────────
-puts "INFO: Creando plataforma pong_platform..."
-platform create -name pong_platform \
-    -hw     $xsa_path \
-    -os     standalone \
-    -proc   microblaze_riscv_0
-
-platform write
-platform generate -domains
-puts "INFO: Plataforma generada."
+if {[catch {platform active pong_platform}]} {
+    puts "INFO: Creando plataforma pong_platform..."
+    platform create -name pong_platform \
+        -hw     $xsa_path \
+        -os     standalone \
+        -proc   microblaze_riscv_0
+    platform write
+    platform generate -domains
+    puts "INFO: Plataforma generada."
+} else {
+    puts "INFO: Plataforma pong_platform ya existe, reutilizando."
+}
 
 # ── Aplicación ─────────────────────────────────────────────────────────────
-puts "INFO: Creando pong_app..."
-app create -name pong_app \
-    -platform pong_platform \
-    -proc     microblaze_riscv_0 \
-    -os       standalone \
-    -template "Empty Application(C)"
+if {[catch {
+    puts "INFO: Creando pong_app..."
+    app create -name pong_app \
+        -platform pong_platform \
+        -proc     microblaze_riscv_0 \
+        -os       standalone \
+        -template "Empty Application(C)"
+} err]} {
+    if {[string match "*already exists*" $err]} {
+        puts "INFO: App pong_app ya existe, reutilizando."
+    } else {
+        error $err
+    }
+}
 
 # Copiar fuentes del repo al workspace
 set src_dir [file join $ws_path "pong_app" "src"]
@@ -63,7 +74,8 @@ puts "INFO: Fuentes copiadas a $src_dir"
 puts "INFO: Compilando pong_app..."
 app build -name pong_app
 
-set elf [file join $ws_path "pong_app" "build" "pong_app.elf"]
+# Vitis 2024.1 pone el ELF en Debug/ (configuración por defecto)
+set elf [file join $ws_path "pong_app" "Debug" "pong_app.elf"]
 if {[file exists $elf]} {
     puts "DONE: ELF generado en $elf"
 } else {
