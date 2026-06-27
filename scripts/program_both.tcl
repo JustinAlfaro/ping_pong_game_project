@@ -7,16 +7,20 @@
 #   A = 210292BB3414A  (SW0=OFF → Maestro, campo izquierdo)
 #   B = 210292BB376FA  (SW0=ON  → Esclavo,  campo derecho)
 #
-# El ELF se busca en orden:
-#   1. <repo_root>/../pong_workspace/pong_app/build/pong_app.elf  (workspace estándar)
-#   2. <repo_root>/pong_workspace/pong_app/build/pong_app.elf     (alternativo)
+# El ELF se busca en orden (Debug/ es la salida de Vitis 2024.1):
+#   1. <repo_root>/../pong_workspace/pong_app/Debug/pong_app.elf  (workspace estándar)
+#   2. <repo_root>/pong_workspace/pong_app/Debug/pong_app.elf     (alternativo)
+#   3. <repo_root>/../pong_workspace/pong_app/build/pong_app.elf  (versiones anteriores)
+#   4. <repo_root>/pong_workspace/pong_app/build/pong_app.elf     (alternativo)
 
 set repo_root [file normalize [file join [file dirname [info script]] ".."]]
 set bit       [file normalize [file join $repo_root "bin" "build_latest" "top_pong_project.bit"]]
 
 # Búsqueda del ELF en rutas relativas al repo
 set elf_candidates [list \
+    [file normalize [file join $repo_root ".." "pong_workspace" "pong_app" "Debug" "pong_app.elf"]] \
     [file normalize [file join $repo_root ".." "pong_workspace" "pong_app" "build" "pong_app.elf"]] \
+    [file normalize [file join $repo_root "pong_workspace" "pong_app" "Debug" "pong_app.elf"]] \
     [file normalize [file join $repo_root "pong_workspace" "pong_app" "build" "pong_app.elf"]] \
 ]
 set elf ""
@@ -63,7 +67,7 @@ foreach line [split [targets] "\n"] {
             after 300
             dow $elf
             after 300
-            rwr pc 0x0
+            rwr pc 0x80000000
             con
             incr n
         } err]} { puts "WARN: target $id: $err" }
