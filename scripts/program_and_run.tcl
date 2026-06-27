@@ -3,9 +3,11 @@
 # Uso (desde la raíz del repo):
 #   xsdb scripts/program_and_run.tcl
 #
-# El ELF se busca en orden:
-#   1. <repo_root>/../pong_workspace/pong_app/build/pong_app.elf  (workspace estándar)
-#   2. <repo_root>/pong_workspace/pong_app/build/pong_app.elf     (alternativo)
+# El ELF se busca en orden (Debug/ es la salida de Vitis 2024.1):
+#   1. <repo_root>/../pong_workspace/pong_app/Debug/pong_app.elf  (workspace estándar)
+#   2. <repo_root>/pong_workspace/pong_app/Debug/pong_app.elf     (alternativo)
+#   3. <repo_root>/../pong_workspace/pong_app/build/pong_app.elf  (versiones anteriores)
+#   4. <repo_root>/pong_workspace/pong_app/build/pong_app.elf     (alternativo)
 
 set repo_root [file normalize [file join [file dirname [info script]] ".."]]
 
@@ -18,6 +20,8 @@ if {[llength $candidates] == 0} {
 set bit [file normalize [lindex $candidates 0]]
 
 set elf_candidates [list \
+    [file normalize [file join $repo_root ".." "pong_workspace" "pong_app" "Debug" "pong_app.elf"]] \
+    [file normalize [file join $repo_root "pong_workspace" "pong_app" "Debug" "pong_app.elf"]] \
     [file normalize [file join $repo_root ".." "pong_workspace" "pong_app" "build" "pong_app.elf"]] \
     [file normalize [file join $repo_root "pong_workspace" "pong_app" "build" "pong_app.elf"]] \
 ]
