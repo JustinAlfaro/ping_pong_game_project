@@ -74,7 +74,8 @@ puts "INFO: Fuentes copiadas a $src_dir"
 puts "INFO: Compilando pong_app..."
 app build -name pong_app
 
-set elf [file join $ws_path "pong_app" "build" "pong_app.elf"]
+# Vitis 2024.1 pone el ELF en Debug/ (configuración por defecto)
+set elf [file join $ws_path "pong_app" "Debug" "pong_app.elf"]
 if {[file exists $elf]} {
     puts "DONE: ELF generado en $elf"
 } else {

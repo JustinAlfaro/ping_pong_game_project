@@ -82,7 +82,7 @@ mkdir -p "$REPO_ROOT/logs"
 xsct "$SCRIPT_DIR/create_vitis_app.tcl" "$REPO_ROOT" "$WORKSPACE" \
      2>&1 | tee "$REPO_ROOT/logs/build_vitis.log"
 
-ELF="$WORKSPACE/pong_app/build/pong_app.elf"
+ELF="$WORKSPACE/pong_app/Debug/pong_app.elf"
 if [[ -f "$ELF" ]]; then
     echo ""
     echo "DONE: ELF generado en $ELF"
