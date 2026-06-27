@@ -2,8 +2,11 @@
 # Abre el proyecto, re-sintetiza si hay cambios, implementa y escribe bitstream.
 # Uso: vivado -mode batch -source scripts/build_bitstream.tcl
 
-set proj_file [file normalize "Projects/pong_project/pong_project.xpr"]
-set out_dir   [file normalize "bin/build_latest"]
+# Derivar repo_path desde la ubicación de este script para que funcione
+# independientemente del directorio de trabajo del usuario.
+set repo_path [file normalize "[file dirname [info script]]/.."]
+set proj_file [file normalize "$repo_path/Projects/pong_project/pong_project.xpr"]
+set out_dir   [file normalize "$repo_path/bin/build_latest"]
 
 puts "INFO: Abriendo proyecto $proj_file ..."
 open_project $proj_file
