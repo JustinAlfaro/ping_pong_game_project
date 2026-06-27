@@ -35,23 +35,34 @@ puts "INFO: XSA    : $xsa_path"
 setws $ws_path
 
 # ── Plataforma ─────────────────────────────────────────────────────────────
-puts "INFO: Creando plataforma pong_platform..."
-platform create -name pong_platform \
-    -hw     $xsa_path \
-    -os     standalone \
-    -proc   microblaze_riscv_0
-
-platform write
-platform generate -domains
-puts "INFO: Plataforma generada."
+if {[catch {platform active pong_platform}]} {
+    puts "INFO: Creando plataforma pong_platform..."
+    platform create -name pong_platform \
+        -hw     $xsa_path \
+        -os     standalone \
+        -proc   microblaze_riscv_0
+    platform write
+    platform generate -domains
+    puts "INFO: Plataforma generada."
+} else {
+    puts "INFO: Plataforma pong_platform ya existe, reutilizando."
+}
 
 # ── Aplicación ─────────────────────────────────────────────────────────────
-puts "INFO: Creando pong_app..."
-app create -name pong_app \
-    -platform pong_platform \
-    -proc     microblaze_riscv_0 \
-    -os       standalone \
-    -template "Empty Application(C)"
+if {[catch {
+    puts "INFO: Creando pong_app..."
+    app create -name pong_app \
+        -platform pong_platform \
+        -proc     microblaze_riscv_0 \
+        -os       standalone \
+        -template "Empty Application(C)"
+} err]} {
+    if {[string match "*already exists*" $err]} {
+        puts "INFO: App pong_app ya existe, reutilizando."
+    } else {
+        error $err
+    }
+}
 
 # Copiar fuentes del repo al workspace
 set src_dir [file join $ws_path "pong_app" "src"]
