@@ -99,9 +99,11 @@ if [[ ! -f "$XPR" ]]; then
     echo "INFO: Proyecto no encontrado — regenerando desde HoG ..."
     mkdir -p "$REPO_ROOT/Projects"
     cd "$REPO_ROOT"
+    # launch.tcl es el punto de entrada correcto de HoG: sourcea hog.tcl,
+    # define CreateProject y lo invoca con el directivo CREATE.
     vivado -mode batch -notrace \
-        -source "$REPO_ROOT/Hog/Tcl/create_project.tcl" \
-        -tclargs "$PROJECT_NAME" "$REPO_ROOT" \
+        -source "$REPO_ROOT/Hog/Tcl/launch.tcl" \
+        -tclargs CREATE "$PROJECT_NAME" \
         -log  "$REPO_ROOT/logs/create_project.log" \
         -journal "$REPO_ROOT/logs/create_project.jou"
     echo "INFO: Proyecto creado en Projects/$PROJECT_NAME/"
