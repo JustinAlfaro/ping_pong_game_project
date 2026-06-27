@@ -11,14 +11,28 @@ set out_dir   [file normalize "$repo_path/bin/build_latest"]
 puts "INFO: Abriendo proyecto $proj_file ..."
 open_project $proj_file
 
-# Actualizar IPs obsoletas y generar wrapper del BD.
-# Necesario en máquinas de compañeros donde las revisiones del catálogo IP
-# difieren de las almacenadas en los .xci del repo, bloqueando el BD.
+# Actualizar IPs y regenerar wrapper del BD.
+# En máquinas de compañeros los .xci commitados tienen checksums diferentes,
+# lo que bloquea el BD. Se requieren dos pasos:
+#   1. upgrade_ip  → IPs normales (bram_ctrl, quad_spi, clk_wiz, proc_reset)
+#   2. upgrade_bd_cells dentro del BD abierto → IPs de infraestructura
+#      autogenerados (auto_cc, auto_pc) que upgrade_ip no toca.
 puts "INFO: Actualizando IPs obsoletas ..."
 upgrade_ip -quiet [get_ips -all]
 
-puts "INFO: Generando productos del Block Design ..."
+puts "INFO: Actualizando celdas de infraestructura del Block Design ..."
 set bd_file [get_files */microblaze_v.bd]
+open_bd_design $bd_file
+set stale_cells [get_bd_cells -hier -filter {STATUS != "OK"}]
+if {[llength $stale_cells] > 0} {
+    puts "INFO: Celdas BD obsoletas encontradas: $stale_cells"
+    upgrade_bd_cells $stale_cells
+}
+validate_bd_design -quiet
+save_bd_design
+close_bd_design [get_bd_designs microblaze_v]
+
+puts "INFO: Generando productos del Block Design ..."
 generate_target all $bd_file -force
 
 set wrapper_file [get_files -quiet *microblaze_v_wrapper*]
