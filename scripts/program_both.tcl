@@ -64,7 +64,8 @@ foreach line [split [targets] "\n"] {
             targets $id
             puts "INFO: ELF → Hart target $id"
             rst -processor
-            after 300
+            after 3000
+            # Mini-stub en LMB BRAM (0x0): lui t0,0x80000 + jalr zero,t0,0
             dow $elf
             after 300
             rwr pc 0x80000000

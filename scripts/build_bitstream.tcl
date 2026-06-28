@@ -63,6 +63,18 @@ if {[get_property PROGRESS [get_runs synth_1]] != "100%"} {
 }
 puts "INFO: Síntesis completada."
 
+# Esperar explícitamente todos los runs OOC antes de lanzar implementación.
+# Si no, xbar_0 (u otros IPs grandes) pueden seguir corriendo cuando opt_design
+# empieza y Vivado los trata como blackbox → DRC INBB-3.
+puts "INFO: Esperando runs OOC pendientes..."
+foreach r [get_runs -filter {IS_SYNTHESIS == 1 && NAME != "synth_1"}] {
+    if {[get_property PROGRESS $r] != "100%"} {
+        puts "INFO:   waiting on $r ..."
+        wait_on_run $r
+    }
+}
+puts "INFO: Todos los runs OOC completos."
+
 puts "INFO: Lanzando implementación + write_bitstream (impl_1)..."
 launch_runs impl_1 -to_step write_bitstream -jobs 4
 wait_on_run impl_1
