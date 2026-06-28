@@ -1,11 +1,11 @@
 {
   "schema": "xilinx.com:schema:json_instance:1.0",
   "ip_inst": {
-    "xci_name": "microblaze_v_auto_pc_0",
-    "cell_name": "microblaze_riscv_0_axi_periph/m00_couplers/auto_pc",
+    "xci_name": "microblaze_v_auto_pc_3",
+    "cell_name": "microblaze_riscv_0_axi_periph/m04_couplers/auto_pc",
     "component_reference": "xilinx.com:ip:axi_protocol_converter:2.1",
     "ip_revision": "31",
-    "gen_directory": "../../../../../../pong_project.gen/sources_1/bd/microblaze_v/ip/microblaze_v_auto_pc_0",
+    "gen_directory": "../../../../../../pong_project.gen/sources_1/bd/microblaze_v/ip/microblaze_v_auto_pc_3",
     "parameters": {
       "component_parameters": {
         "SI_PROTOCOL": [ { "value": "AXI4", "value_src": "user", "value_permission": "bd_and_user", "resolve_type": "user", "usage": "all" } ],
@@ -20,7 +20,7 @@
         "RUSER_WIDTH": [ { "value": "0", "value_permission": "bd_and_user", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "WUSER_WIDTH": [ { "value": "0", "value_permission": "bd_and_user", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "BUSER_WIDTH": [ { "value": "0", "value_permission": "bd_and_user", "resolve_type": "user", "format": "long", "usage": "all" } ],
-        "Component_Name": [ { "value": "microblaze_v_auto_pc_0", "resolve_type": "user", "usage": "all" } ]
+        "Component_Name": [ { "value": "microblaze_v_auto_pc_3", "resolve_type": "user", "usage": "all" } ]
       },
       "model_parameters": {
         "C_FAMILY": [ { "value": "artix7", "resolve_type": "generated", "usage": "all" } ],
@@ -58,7 +58,7 @@
         "IPCONTEXT": [ { "value": "IP_Integrator" } ],
         "IPREVISION": [ { "value": "31" } ],
         "MANAGED": [ { "value": "TRUE" } ],
-        "OUTPUTDIR": [ { "value": "../../../../../../pong_project.gen/sources_1/bd/microblaze_v/ip/microblaze_v_auto_pc_0" } ],
+        "OUTPUTDIR": [ { "value": "../../../../../../pong_project.gen/sources_1/bd/microblaze_v/ip/microblaze_v_auto_pc_3" } ],
         "SELECTEDSIMMODEL": [ { "value": "rtl" } ],
         "SHAREDDIR": [ { "value": "../../../../../../Documentos/Proyecto_2/ping_pong_game_project/BD/ipshared" } ],
         "SWVERSION": [ { "value": "2024.1" } ],
@@ -137,7 +137,7 @@
             "DATA_WIDTH": [ { "value": "32", "value_src": "constant", "value_permission": "bd", "resolve_type": "generated", "format": "long", "usage": "simulation.tlm", "is_ips_inferred": true, "is_static_object": false } ],
             "PROTOCOL": [ { "value": "AXI4", "value_src": "user_prop", "value_permission": "bd", "resolve_type": "generated", "usage": "simulation.tlm", "is_ips_inferred": true, "is_static_object": false } ],
             "FREQ_HZ": [ { "value": "100000000", "value_src": "ip_propagated", "value_permission": "bd", "resolve_type": "generated", "format": "long", "usage": "simulation.tlm", "is_ips_inferred": true, "is_static_object": false } ],
-            "ID_WIDTH": [ { "value": "2", "value_src": "auto_prop", "value_permission": "bd", "resolve_type": "generated", "format": "long", "usage": "simulation.tlm", "is_ips_inferred": true, "is_static_object": false } ],
+            "ID_WIDTH": [ { "value": "2", "value_src": "default_prop", "value_permission": "bd", "resolve_type": "generated", "format": "long", "usage": "simulation.tlm", "is_ips_inferred": true, "is_static_object": false } ],
             "ADDR_WIDTH": [ { "value": "32", "value_src": "ip_propagated", "value_permission": "bd", "resolve_type": "generated", "format": "long", "usage": "simulation.tlm", "is_ips_inferred": true, "is_static_object": false } ],
             "AWUSER_WIDTH": [ { "value": "0", "value_permission": "bd", "resolve_type": "generated", "format": "long", "usage": "simulation.tlm", "is_ips_inferred": true, "is_static_object": false } ],
             "ARUSER_WIDTH": [ { "value": "0", "value_permission": "bd", "resolve_type": "generated", "format": "long", "usage": "simulation.tlm", "is_ips_inferred": true, "is_static_object": false } ],
