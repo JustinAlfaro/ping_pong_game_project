@@ -2761,6 +2761,9 @@
         "xci_path": "ip/microblaze_v_axi_quad_spi_0_0/microblaze_v_axi_quad_spi_0_0.xci",
         "inst_hier_path": "axi_quad_spi_0",
         "parameters": {
+          "C_SPI_MEMORY": {
+            "value": "0"
+          },
           "C_USE_STARTUP": {
             "value": "0"
           }

@@ -10,14 +10,13 @@
 #   4. <repo_root>/pong_workspace/pong_app/build/pong_app.elf     (alternativo)
 
 set repo_root [file normalize [file join [file dirname [info script]] ".."]]
+set bit       [file normalize [file join $repo_root "bin" "build_latest" "top_pong_project.bit"]]
 
-set candidates [lsort -decreasing [glob -nocomplain [file join $repo_root "bin" "*" "*.bit"]]]
-if {[llength $candidates] == 0} {
-    puts "ERROR: No se encontró ningún bitstream en bin/"
+if {![file exists $bit]} {
+    puts "ERROR: Bitstream no encontrado en $bit"
     puts "       Genera primero el bitstream con:  bash scripts/build_all.sh"
     exit 1
 }
-set bit [file normalize [lindex $candidates 0]]
 
 set elf_candidates [list \
     [file normalize [file join $repo_root ".." "pong_workspace" "pong_app" "Debug" "pong_app.elf"]] \
@@ -49,7 +48,6 @@ rst -processor
 after 500
 dow $elf
 after 500
-rwr pc 0x0
 con
 
 puts "DONE: Pong corriendo. SW0=OFF para modo 1P."

@@ -119,7 +119,7 @@
 #define SPICR_MANSS    (1u << 7)
 #define SPICR_MASTER   (1u << 2)
 #define SPICR_SPE      (1u << 1)
-#define SPICR_LOOP     (1u << 0)   /* Loopback: MOSI → MISO internamente */
+#define SPICR_LOOP     (1u << 0)   /* Loopback: MOSI: MISO internamente */
 #define SPISR_RX_EMPTY (1u << 0)   /* 1 = RX FIFO vacío */
 #define SPISR_TX_EMPTY (1u << 2)
 
@@ -140,7 +140,7 @@ typedef struct { int y; }             pad_t;
 /* Sprites viven en DDR2 — ver DDR2_SPR_BALL / _PADDLE / _LOGO */
 static u8 sd_sector_buf[512];
 
-/* Layout de sectores en la SD (LBA, antes de la partición → sector 0 = MBR) */
+/* Layout de sectores en la SD (LBA, antes de la partición: sector 0 = MBR) */
 #define SD_MAGIC        0x504F4E47u   /* "PONG" */
 #define SD_LBA_HDR      1
 #define SD_LBA_BALL     2
@@ -213,7 +213,7 @@ static void wait_vsync(void)
     int t;
     /* Si ya estamos DENTRO del pulso (vsync LOW): esperar a que termine.
      * Nota: el guard anterior hacía return inmediato aquí, lo que permitía
-     * 2-3 iteraciones de game logic por frame visual → efecto de pintado. */
+     * 2-3 iteraciones de game logic por frame visual: efecto de pintado. */
     if (!(Xil_In32(XPAR_AXI_GPIO_0_BASEADDR) & BTN_VSYNC)) {
         t = 200000;
         while (!(Xil_In32(XPAR_AXI_GPIO_0_BASEADDR) & BTN_VSYNC) && --t);
@@ -315,7 +315,7 @@ static void fb_draw_digit(int x, int y, int digit, int scale, u8 color)
 
 /* Dibuja el marcador centrado arriba: dos dígitos a cada lado de la red.
  * x=256 y x=360 son múltiplos de 8 (alineados a word del FB de 4 bits/px).
- * Cada dígito ocupa 24 px (4 cols × 6 px) = exactamente 3 words → writes
+ * Cada dígito ocupa 24 px (4 cols × 6 px) = exactamente 3 words: writes
  * directos sin RMW. También pinta el fondo negro, restaurando el área completa. */
 static void fb_draw_scores(void)
 {
@@ -459,7 +459,7 @@ static void fb_blit_scaled(int x, int y, int w, int h, const u8 *spr, int transp
 
                 u8 p0 = b0 >> 4, p1 = b0 & 0xF, p2 = b1 >> 4, p3 = b1 & 0xF;
 
-                /* Empaquetar en word FB: cada px → 2 nibbles adyacentes */
+                /* Empaquetar en word FB: cada px: 2 nibbles adyacentes */
                 u32 pval = ((u32)p0<<28)|((u32)p0<<24)|((u32)p1<<20)|((u32)p1<<16)
                           |((u32)p2<<12)|((u32)p2<< 8)|((u32)p3<< 4)| (u32)p3;
                 u32 mask = 0;
@@ -606,8 +606,10 @@ static void sd_spi_setup(void)
 static u8 sd_spi_byte(u8 tx)
 {
     /* Drenar RX FIFO de datos obsoletos antes de iniciar nueva transferencia */
-    while (!(Xil_In32(SD_BASE + SPI_SR) & SPISR_RX_EMPTY))
+    for (int d = 0; d < 100000; d++) {
+        if (Xil_In32(SD_BASE + SPI_SR) & SPISR_RX_EMPTY) break;
         (void)Xil_In32(SD_BASE + SPI_DRR);
+    }
 
     u32 cr = Xil_In32(SD_BASE + SPI_CR);
     Xil_Out32(SD_BASE + SPI_DTR, tx);
@@ -619,6 +621,8 @@ static u8 sd_spi_byte(u8 tx)
         if ((sr & SPISR_TX_EMPTY) && !(sr & SPISR_RX_EMPTY)) break;
     }
     Xil_Out32(SD_BASE + SPI_CR, cr);  /* detener transferencia (INHIBIT) */
+    /* IP v3.2 retorna SLVERR si se lee DRR con FIFO vacío — evitar trap */
+    if (Xil_In32(SD_BASE + SPI_SR) & SPISR_RX_EMPTY) return 0xFF;
     return (u8)Xil_In32(SD_BASE + SPI_DRR);
 }
 
@@ -675,9 +679,9 @@ static int sd_init(void)
     Xil_Out32(SD_BASE + SPI_SSR, 0xFEu);
 
     /* CMD8: SEND_IF_COND (SDHC check)
-     * R1=0x01 → SDHC (consume 4 echo bytes R7)
-     * R1=0x05 → SDSC legacy (no echo)
-     * R1=0xFF → no responde (tarjeta antigua o sin soporte) */
+     * R1=0x01: SDHC (consume 4 echo bytes R7)
+     * R1=0x05: SDSC legacy (no echo)
+     * R1=0xFF: no responde (tarjeta antigua o sin soporte) */
     const u8 cmd8[] = {0x48, 0x00, 0x00, 0x01, 0xAA, 0x87};
     for (int i = 0; i < 6; i++) sd_spi_byte(cmd8[i]);
     u8 r8 = 0xFF;
@@ -719,7 +723,7 @@ static int sd_init(void)
         sd_spi_byte(0xFF);   /* 8 clocks con CS alto */
 
         tries++;
-        usleep(10000);   /* 10 ms por intento → 2 s de timeout total */
+        usleep(10000);   /* 10 ms por intento: 2 s de timeout total */
     } while (r1 != 0x00 && tries < 200);
     sd_acmd41_r1  = r1;
     sd_acmd41_try = tries;
@@ -796,6 +800,7 @@ static int sd_run_test(void)
     sd_spi_setup();
     sd_loopback_ok = sd_loopback_test();
     xil_printf("Loopback: %s\r\n", sd_loopback_ok ? "PASS" : "FAIL");
+    if (!sd_loopback_ok) return 0;  /* SPI IP sin respuesta — evitar 30s de reintentos */
 
     int rc = sd_init();
     sd_init_rc = rc;
@@ -1090,7 +1095,7 @@ static int sw_on(void)
     return (int)(XGpio_DiscreteRead(&gpio0, 2) & 0x1u);
 }
 
-/* Maestro → esclavo: estado completo del juego (8 bytes).
+/* Maestro: esclavo: estado completo del juego (8 bytes).
    Recibe: pad[1].y del esclavo. */
 static void spi_exchange(void)
 {
@@ -1409,7 +1414,7 @@ static void ddr2_selftest(void)
 
 static void ddr2_sprite_defaults(void)
 {
-    /* Ball y paddle: blanco sólido (nibble COL_WHITE=1 → byte 0x11).
+    /* Ball y paddle: blanco sólido (nibble COL_WHITE=1: byte 0x11).
      * Logo: negro/transparente hasta que la SD esté lista. */
     u32 addr;
     int i;
@@ -1477,13 +1482,17 @@ static void slave_loop(void)
         while (1) {
             u32 sr = Xil_In32(SPI2P_BASE + SPI_SR);
 
-            /* Pre-cargar TX con SPI_PONG si el FIFO está vacío */
+            /* Pre-cargar TX con 8× SPI_PONG si el FIFO está vacío.
+               El maestro usa XSpi_Transfer(8 bytes); TX_EMPTY en AXI SPI se activa
+               cuando el byte sale del FIFO al shift register, no cuando termina
+               el clocking. Con 8 bytes hay tiempo para que RX llegue correctamente. */
             if (sr & SPISR_TX_EMPTY)
-                Xil_Out32(SPI2P_BASE + SPI_DTR, (u32)SPI_PONG);
+                for (int _i = 0; _i < 8; _i++)
+                    Xil_Out32(SPI2P_BASE + SPI_DTR, (u32)SPI_PONG);
 
             wait_vsync();
 
-            /* BTN_C flanco ascendente → salir al menú */
+            /* BTN_C flanco ascendente: salir al menú */
             u32 cur_lvl = XGpio_DiscreteRead(&gpio0, 1) & 0x1Fu;
             if ((cur_lvl & BTN_C) && !(prev_lvl & BTN_C)) {
                 Xil_Out32(SPI2P_BASE + SPI_CR, cr | SPICR_INHIBIT);
@@ -1523,9 +1532,9 @@ static void slave_loop(void)
         u8  slv_btnc     = 0;
         int slv_selected = 0;
         int menu_consec  = 0;  /* paquetes ST_MENU consecutivos recibidos */
-        int spi_watchdog = 0;  /* frames sin datos válidos del master → salida de emergencia */
+        int spi_watchdog = 0;  /* frames sin datos válidos del master: salida de emergencia */
 
-        /* Sin preload inicial: FIFO vacío → steady-state desde el primer exchange.
+        /* Sin preload inicial: FIFO vacío: steady-state desde el primer exchange.
            Si el master lee antes del primer reload, obtiene 0x00 × 8 (sin btnc). */
 
         while (1) {
@@ -1692,11 +1701,11 @@ int main(void)
                 score[0] = score[1] = 0;
                 init_game();
                 if (mode_2p) {
-                    is_slave = sw_on();   /* SW0=0 → maestro, SW0=1 → esclavo */
+                    is_slave = sw_on();   /* SW0=0: maestro, SW0=1: esclavo */
                     if (is_slave) {
                         slave_loop();     /* regresa si BTN_C */
                     }
-                    if (mode_2p) {        /* si slave salió, mode_2p=0 → skip */
+                    if (mode_2p) {        /* si slave salió, mode_2p=0: skip */
                         game_state        = ST_WAIT_2P;
                         needs_full_redraw = 1;
                     }
@@ -1712,9 +1721,13 @@ int main(void)
                 mode_2p = 0; is_slave = 0;
                 game_state = ST_MENU; needs_full_redraw = 1; break;
             }
-            u8 tx = SPI_PING, rx = 0;
-            int rc = XSpi_Transfer(&spi, &tx, &rx, 1);
-            if (rc == XST_SUCCESS && rx == SPI_PONG) {
+            u8 tx[8] = {SPI_PING,SPI_PING,SPI_PING,SPI_PING,SPI_PING,SPI_PING,SPI_PING,SPI_PING};
+            u8 rx[8] = {0};
+            int rc = XSpi_Transfer(&spi, tx, rx, 8);
+            int got_pong = 0;
+            if (rc == XST_SUCCESS)
+                for (int _i = 0; _i < 8; _i++) if (rx[_i] == SPI_PONG) { got_pong = 1; break; }
+            if (got_pong) {
                 score[0] = score[1] = 0;
                 init_game();
                 game_state        = ST_PLAYING;

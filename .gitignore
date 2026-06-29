@@ -26,6 +26,10 @@ bin
 !bin/
 !bin/build_latest/
 !bin/build_latest/top_pong_project.bit
+!bin/build_latest/resource_usage.csv
+!bin/build_latest/resource_usage.rpt
+bin/pong_project-*/
+bin/bram_stub.elf
 gitk
 *~
 **.pyc
@@ -75,6 +79,14 @@ xvlog.pb
 .rigel_lopper_temp_platform/
 .wsdata/
 .lock
+
+## Vivado — IPs duplicadas auto-generadas (BD solo referencia las _0)
+BD/ip/microblaze_v_not_calib_1/
+BD/ip/microblaze_v_reset_or_1/
+
+## Firmware / workspace exports
+src/sw/Firmware.zip
+src/sw/*.zip
 
 ## Xilinx — simulación
 xsim.dir/

@@ -8,9 +8,9 @@
     "gen_directory": "../../../../../../pong_project.gen/sources_1/bd/microblaze_v/ip/microblaze_v_axi_quad_spi_0_0",
     "parameters": {
       "component_parameters": {
-        "C_SPI_MEMORY": [ { "value": "0", "resolve_type": "user", "format": "long", "usage": "all" } ],
+        "C_SPI_MEMORY": [ { "value": "0", "value_src": "user", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "C_USE_STARTUP": [ { "value": "0", "value_src": "user", "resolve_type": "user", "format": "long", "usage": "all" } ],
-        "C_USE_STARTUP_INT": [ { "value": "0", "resolve_type": "user", "format": "long", "enabled": false, "usage": "all" } ],
+        "C_USE_STARTUP_INT": [ { "value": "0", "value_src": "user", "resolve_type": "user", "format": "long", "enabled": false, "usage": "all" } ],
         "C_SPI_MODE": [ { "value": "0", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "C_NUM_TRANSFER_BITS": [ { "value": "8", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "C_DUAL_QUAD_MODE": [ { "value": "0", "resolve_type": "user", "format": "long", "enabled": false, "usage": "all" } ],
