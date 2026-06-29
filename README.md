@@ -1012,7 +1012,8 @@ El diseño RTL (`src/hdl/`), el Block Design en Vivado, las constraints XDC y la
 
 ## 22. Autores
 
-- **Justin Alfaro** — Diseño RTL, firmware e integración del sistema
-- **Jeulin Hidalgo** — Desarrollo, revisión, documentación e integración del proyecto
+- **Justin Alfaro**
+- **Jeulin Hidalgo**
+- **Joey Apuy**
 
 *Proyecto para EL3313 Taller de Diseño Digital — I Semestre 2026*
