@@ -13,7 +13,7 @@
 `timescale 1ns / 1ps
 
 module div_freq #(
-    parameter integer DIVISOR = 100_000_000  ///< Cociente de división (default: 100 MHz → 1 Hz)
+    parameter integer DIVISOR = 100_000_000  ///< Cociente de división (default: 100 MHz: 1 Hz)
 )(
     input  wire clk_in,   ///< Reloj de entrada (100 MHz)
     input  wire rst,      ///< Reset síncrono activo alto

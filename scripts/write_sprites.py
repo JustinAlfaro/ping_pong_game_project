@@ -2,7 +2,7 @@
 """
 write_sprites.py — Convierte BMPs a 4bpp y los graba en la microSD del Pong.
 
-Paleta FPGA (índice → RGB 8-bit):
+Paleta FPGA (índice: RGB 8-bit):
   0=Negro  1=Blanco  2=Rojo    3=Azul    4=Amarillo  5=Verde
   6=Naranja 7=Gris medio 8=Gris oscuro 9=Magenta A=Cyan B=Amarillo claro
   C=Rojo oscuro D=Verde oscuro E=Azul oscuro F=Gris claro
@@ -129,13 +129,13 @@ def main():
     def write_sprite(lba, raw, label):
         sector = pad_to_sector(bytearray(raw))[:512]
         if dry_run:
-            print(f"  [DRY-RUN] {label}: {len(raw)} B → LBA{lba}")
+            print(f"  [DRY-RUN] {label}: {len(raw)} B: LBA{lba}")
         else:
             write_sector(dev, lba, bytes(sector))
-            print(f"  OK: {label}: {len(raw)} B → LBA{lba}")
+            print(f"  OK: {label}: {len(raw)} B: LBA{lba}")
         written.append((lba, label))
 
-    # ── Ball: 8×8 px → 32 B ──────────────────────────────────────────────────
+    # ── Ball: 8×8 px: 32 B ──────────────────────────────────────────────────
     ball_img = Image.new('RGB', (8, 8), (255, 255, 255))  # blanco sólido
     ball_raw = img_to_4bpp(ball_img, 8, 8)
     write_sprite(2, ball_raw, "ball 8×8")
@@ -153,10 +153,10 @@ def main():
     logo_bmp = asset_dir / 'title.bmp'
     if logo_bmp.exists():
         logo_img = Image.open(logo_bmp)
-        # Color key magenta (255,0,255) → transparente (índice 0)
+        # Color key magenta (255,0,255): transparente (índice 0)
         logo_raw = img_to_4bpp(logo_img, 64, 16, transparent_rgb=(255, 0, 255),
                                resample=Image.NEAREST)
-        print(f"  INFO: title.bmp → 64×16 px, {len(logo_raw)} B")
+        print(f"  INFO: title.bmp: 64×16 px, {len(logo_raw)} B")
     else:
         # Fallback: texto "PONG" simple en blanco sobre negro
         print("  AVISO: title.bmp no encontrado, usando fallback blanco.")
@@ -166,7 +166,7 @@ def main():
         logo_raw = img_to_4bpp(logo_img, 64, 16)
     write_sprite(5, logo_raw, "logo 64×16")
 
-    # ── Gameover: 160×225 px desde gameover.bmp (firmware escala 3× → 480×675) ─
+    # ── Gameover: 160×225 px desde gameover.bmp (firmware escala 3×: 480×675) ─
     # El sprite se almacena como 160×225 4bpp = 18000 B = 36 sectores (LBA6-41)
     go_bmp = asset_dir / 'gameover.bmp'
     if go_bmp.exists():
@@ -175,18 +175,18 @@ def main():
         go_data = pad_to_sector(bytearray(go_raw))
         sectors = len(go_data) // 512
         if dry_run:
-            print(f"  [DRY-RUN] gameover 200×225: {len(go_raw)} B → LBA6-{6+sectors-1}")
+            print(f"  [DRY-RUN] gameover 200×225: {len(go_raw)} B: LBA6-{6+sectors-1}")
         else:
             with open(dev, 'r+b') as f:
                 f.seek(6 * 512)
                 f.write(go_data)
-            print(f"  OK: gameover 200×225: {len(go_raw)} B → LBA6-{6+sectors-1} ({sectors} sectores)")
+            print(f"  OK: gameover 200×225: {len(go_raw)} B: LBA6-{6+sectors-1} ({sectors} sectores)")
         written.append((6, f"gameover 200×225 ({sectors} sectores)"))
     else:
         print("  AVISO: gameover.bmp no encontrado, se omite.")
 
     # ── Mode-select: 160×90 px desde mode_select.bmp ─────────────────────────
-    # LBA 42-56 (15 sectores). Fondo negro → índice 0 (transparente en blit).
+    # LBA 42-56 (15 sectores). Fondo negro: índice 0 (transparente en blit).
     ms_bmp = asset_dir / 'mode_select.bmp'
     if ms_bmp.exists():
         ms_img  = Image.open(ms_bmp)
@@ -194,12 +194,12 @@ def main():
         ms_data = pad_to_sector(bytearray(ms_raw))
         ms_secs = len(ms_data) // 512
         if dry_run:
-            print(f"  [DRY-RUN] mode_select 200×112: {len(ms_raw)} B → LBA50-{50+ms_secs-1}")
+            print(f"  [DRY-RUN] mode_select 200×112: {len(ms_raw)} B: LBA50-{50+ms_secs-1}")
         else:
             with open(dev, 'r+b') as f:
                 f.seek(50 * 512)
                 f.write(ms_data)
-            print(f"  OK: mode_select 200×112: {len(ms_raw)} B → LBA50-{50+ms_secs-1}")
+            print(f"  OK: mode_select 200×112: {len(ms_raw)} B: LBA50-{50+ms_secs-1}")
         written.append((50, f"mode_select 200×112 ({ms_secs} sectores)"))
     else:
         print("  AVISO: mode_select.bmp no encontrado, se omite.")
@@ -213,12 +213,12 @@ def main():
         pm_data = pad_to_sector(bytearray(pm_raw))
         pm_secs = len(pm_data) // 512
         if dry_run:
-            print(f"  [DRY-RUN] pause_menu 200×80: {len(pm_raw)} B → LBA72-{72+pm_secs-1}")
+            print(f"  [DRY-RUN] pause_menu 200×80: {len(pm_raw)} B: LBA72-{72+pm_secs-1}")
         else:
             with open(dev, 'r+b') as f:
                 f.seek(72 * 512)
                 f.write(pm_data)
-            print(f"  OK: pause_menu 200×80: {len(pm_raw)} B → LBA72-{72+pm_secs-1}")
+            print(f"  OK: pause_menu 200×80: {len(pm_raw)} B: LBA72-{72+pm_secs-1}")
         written.append((72, f"pause_menu 200×80 ({pm_secs} sectores)"))
     else:
         print("  AVISO: pause_menu.bmp no encontrado — generar con: python3 scripts/gen_pause_sprite.py")

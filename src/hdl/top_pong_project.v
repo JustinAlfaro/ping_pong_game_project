@@ -19,8 +19,8 @@
  *     El Esclavo (SW0=1) controla la paleta derecha y responde con su posición Y.
  *
  *   Pipeline VGA (1 ciclo a 100 MHz):
- *     Ciclo 0: addr = f(h_count, v_count) combinacional → BRAM inicia lectura
- *     Ciclo 1: dout disponible → se registra junto con nibble_sel, blank, hsync, vsync
+ *     Ciclo 0: addr = f(h_count, v_count) combinacional: BRAM inicia lectura
+ *     Ciclo 1: dout disponible: se registra junto con nibble_sel, blank, hsync, vsync
  *     Ciclo 1+: paleta aplica y pixel_mux saca RGB
  *
  * @author JustinAlfaro
@@ -271,7 +271,7 @@ always @(*) begin
     endcase
 end
 
-// Paleta 16 colores: índice 4-bit → RGB 12-bit {R[3:0], G[3:0], B[3:0]}
+// Paleta 16 colores: índice 4-bit: RGB 12-bit {R[3:0], G[3:0], B[3:0]}
 reg [11:0] pixel_rgb;
 always @(*) begin
     case (pixel_nibble)

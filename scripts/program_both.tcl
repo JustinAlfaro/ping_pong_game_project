@@ -4,8 +4,8 @@
 #   xsdb scripts/program_both.tcl
 #
 # Seriales JTAG de las dos placas del equipo:
-#   A = 210292BB3414A  (SW0=OFF → Maestro, campo izquierdo)
-#   B = 210292BB376FA  (SW0=ON  → Esclavo,  campo derecho)
+#   A = 210292BB3414A  (SW0=OFF: Maestro, campo izquierdo)
+#   B = 210292BB376FA  (SW0=ON : Esclavo,  campo derecho)
 #
 # El ELF se busca en orden (Debug/ es la salida de Vitis 2024.1):
 #   1. <repo_root>/../pong_workspace/pong_app/Debug/pong_app.elf  (workspace estándar)
@@ -59,12 +59,13 @@ after 4000
 
 set n 0
 foreach line [split [targets] "\n"] {
-    if {[regexp {^\s+(\d+)\s+Hart} $line -> id]} {
+    if {[regexp {^\s+(\d+)\s+Hart} $line _ id]} {
         if {[catch {
             targets $id
-            puts "INFO: ELF → Hart target $id"
+            puts "INFO: ELF: Hart target $id"
             rst -processor
-            after 300
+            after 3000
+            # Mini-stub en LMB BRAM (0x0): lui t0,0x80000 + jalr zero,t0,0
             dow $elf
             after 300
             rwr pc 0x80000000
@@ -75,4 +76,4 @@ foreach line [split [targets] "\n"] {
 }
 
 puts "DONE: $n Hart(s) cargados."
-puts "SW0=OFF → Maestro (campo izquierdo)  |  SW0=ON → Esclavo (campo derecho)"
+puts "SW0=OFF: Maestro (campo izquierdo)  |  SW0=ON: Esclavo (campo derecho)"
