@@ -17,12 +17,10 @@
  *   XPAR_AXI_QUAD_SPI_1_BASEADDR    — SPI microSD (requiere rebuild de plataforma)
  */
 
-#include <stdio.h>
 #include "xparameters.h"
 #include "xgpio.h"
 #include "xspi.h"
 #include "xil_io.h"
-#include "xil_printf.h"
 #include "sleep.h"
 
 /* ── SD SPI: dirección provisional hasta rebuild de plataforma ─────────── */
@@ -159,21 +157,8 @@ static int     selected;
 static int     mode_2p;
 static int     is_slave  = 0;   /* 0=maestro (izquierda), 1=esclavo (derecha) */
 static int     sd_ok      = 0;
-static int     sd_init_rc    = 0;   /* -1=CMD0 sin resp, -2=ACMD41 timeout, 0=OK */
-static u8      sd_acmd41_r1  = 0xFF; /* ultimo R1 de CMD41 (0x00=OK, 0x01=idle, 0xFF=sin resp) */
-static u8      sd_cmd55_r1   = 0xFF; /* ultimo R1 de CMD55 (para diagnóstico) */
-static u8      sd_cmd8_r1    = 0xFF; /* R1 de CMD8 (0x01=SDHC, 0x05=SDSC/illegal, 0xFF=sin resp) */
-static int     sd_acmd41_try = 0;    /* intentos hasta que termino el loop */
-static int     sd_loopback_ok = -1;  /* 1=IP SPI ok, 0=IP roto, -1=no testeado */
-static u8      sd_cmd0_r1    = 0xFF; /* respuesta real de CMD0 */
-static u8      sd_read_r1    = 0xFF; /* R1 de CMD17 (debe ser 0x00) */
-static u8      sd_read_token = 0xFF; /* token de datos (debe ser 0xFE) */
-static u8      sd_cmd58_r1   = 0xFF; /* R1 de CMD58 (debe ser 0x00) */
-static u8      sd_ocr0       = 0xFF; /* OCR byte 0 [31:24]: bit6=CCS */
 static int     sd_sdhc       = 0;
-static u32     sd_magic_read = 0;    /* magic leído de LBA1 (esperado 0x504F4E47="PONG") */
 static int     load_step     = 0;    /* 0=no ran, 1=hdr ok, 2=ball ok, 3=paddle ok, 4=logo ok */
-static int     sprites_ok = 0;
 static int     msel_loaded = 0;
 static int     pause_loaded = 0;
 
@@ -339,36 +324,6 @@ static void fb_draw_scores(void)
                 Xil_Out32(FB_BASE + ((wi+1) << 2), w1);
                 Xil_Out32(FB_BASE + ((wi+2) << 2), w2);
             }
-        }
-    }
-}
-
-/* Versión parcial: redibuja sólo las filas y=[ry1,ry2) dentro del área del
- * marcador (y=8..37). Misma lógica de word-writes que fb_draw_scores.
- * Úsala en el path incremental para minimizar las escrituras cuando la pelota
- * sólo roza el borde del marcador (p.ej. 2 filas en lugar de las 30 completas). */
-static void fb_draw_scores_rows(int ry1, int ry2)
-{
-    int y1 = ry1 > 8  ? ry1 : 8;
-    int y2 = ry2 < 38 ? ry2 : 38;
-    if (y1 >= y2) return;
-    static const u32 BW[2] = {256/8, 360/8};
-    for (int d = 0; d < 2; d++) {
-        const u8 *g = font4x5[score[d] % 10];
-        u32 wb = BW[d];
-        for (int r = y1; r < y2; r++) {
-            int fr = (r - 8) / 6;
-            u32 c0 = (g[fr] & 0x8u) ? 1u : 0u;
-            u32 c1 = (g[fr] & 0x4u) ? 1u : 0u;
-            u32 c2 = (g[fr] & 0x2u) ? 1u : 0u;
-            u32 c3 = (g[fr] & 0x1u) ? 1u : 0u;
-            u32 w0=(c0<<28)|(c0<<24)|(c0<<20)|(c0<<16)|(c0<<12)|(c0<<8)|(c1<<4)|c1;
-            u32 w1=(c1<<28)|(c1<<24)|(c1<<20)|(c1<<16)|(c2<<12)|(c2<<8)|(c2<<4)|c2;
-            u32 w2=(c2<<28)|(c2<<24)|(c3<<20)|(c3<<16)|(c3<<12)|(c3<<8)|(c3<<4)|c3;
-            u32 wi = (u32)r * (FB_W/8) + wb;
-            Xil_Out32(FB_BASE + (wi     << 2), w0);
-            Xil_Out32(FB_BASE + ((wi+1) << 2), w1);
-            Xil_Out32(FB_BASE + ((wi+2) << 2), w2);
         }
     }
 }
@@ -670,7 +625,6 @@ static int sd_init(void)
             usleep(10000);
         }
     }
-    sd_cmd0_r1 = r1;
     if (r1 != 0x01) { Xil_Out32(SD_BASE + SPI_SSR, 0xFFu); return -1; }
 
     /* Gap post-CMD0: desaserta CS + 8 clocks + reaserta */
@@ -686,7 +640,6 @@ static int sd_init(void)
     for (int i = 0; i < 6; i++) sd_spi_byte(cmd8[i]);
     u8 r8 = 0xFF;
     for (int i = 0; i < 8 && r8 == 0xFF; i++) r8 = sd_spi_byte(0xFF);
-    sd_cmd8_r1 = r8;
     if (r8 == 0x01) {
         for (int i = 0; i < 4; i++) sd_spi_byte(0xFF);  /* consume 4 echo bytes R7 */
     } else {
@@ -709,7 +662,6 @@ static int sd_init(void)
         for (int i = 0; i < 6; i++) sd_spi_byte(cmd55[i]);
         r1 = 0xFF;
         for (int i = 0; i < 10 && r1 == 0xFF; i++) r1 = sd_spi_byte(0xFF);
-        sd_cmd55_r1 = r1;
         Xil_Out32(SD_BASE + SPI_SSR, 0xFFu);
         sd_spi_byte(0xFF);   /* 8 clocks con CS alto */
 
@@ -725,8 +677,6 @@ static int sd_init(void)
         tries++;
         usleep(10000);   /* 10 ms por intento: 2 s de timeout total */
     } while (r1 != 0x00 && tries < 200);
-    sd_acmd41_r1  = r1;
-    sd_acmd41_try = tries;
 
     if (r1 != 0x00) { Xil_Out32(SD_BASE + SPI_SSR, 0xFFu); return -2; }
 
@@ -738,9 +688,7 @@ static int sd_init(void)
     for (int i = 0; i < 6; i++) sd_spi_byte(cmd58[i]);
     u8 r58 = 0xFF;
     for (int i = 0; i < 20 && r58 == 0xFF; i++) r58 = sd_spi_byte(0xFF);
-    sd_cmd58_r1 = r58;
     u8 ocr0 = sd_spi_byte(0xFF);
-    sd_ocr0 = ocr0;
     sd_spi_byte(0xFF); sd_spi_byte(0xFF); sd_spi_byte(0xFF);  /* ocr[1..3] */
     sd_sdhc = (r58 == 0x00 && (ocr0 & 0x40)) ? 1 : 0;
 
@@ -768,13 +716,11 @@ static int sd_read_block(u32 lba, u8 *buf)
 
     u8 r1 = 0xFF;
     for (int i = 0; i < 20 && r1 == 0xFF; i++) r1 = sd_spi_byte(0xFF);
-    sd_read_r1 = r1;
     if (r1 != 0x00) { Xil_Out32(SD_BASE + SPI_SSR, 0xFFu); return -1; }
 
     /* N_AC_max = 100 ms @ 3.125 MHz = ~31250 bytes; usar 40000 con margen */
     u8 tok = 0xFF;
     for (int i = 0; i < 40000 && tok != 0xFE; i++) tok = sd_spi_byte(0xFF);
-    sd_read_token = tok;
     if (tok != 0xFE) { Xil_Out32(SD_BASE + SPI_SSR, 0xFFu); return -1; }
 
     for (int i = 0; i < 512; i++) buf[i] = sd_spi_byte(0xFF);
@@ -795,52 +741,9 @@ static int sd_read_block(u32 lba, u8 *buf)
  */
 static int sd_run_test(void)
 {
-    xil_printf("\r\n=== SD TEST ===\r\n");
-
     sd_spi_setup();
-    sd_loopback_ok = sd_loopback_test();
-    xil_printf("Loopback: %s\r\n", sd_loopback_ok ? "PASS" : "FAIL");
-    if (!sd_loopback_ok) return 0;  /* SPI IP sin respuesta — evitar 30s de reintentos */
-
-    int rc = sd_init();
-    sd_init_rc = rc;
-    if (rc == -1) {
-        xil_printf("FAIL CMD0: tarjeta no responde "
-                   "(verificar SD_RESET=0, SCK llega al pin B1)\r\n");
-        return 0;
-    }
-    if (rc == -2) {
-        xil_printf("FAIL ACMD41: tarjeta no sale de idle "
-                   "(timeout 200 intentos)\r\n");
-        return 0;
-    }
-    xil_printf("PASS init: SD lista, tipo=%s\r\n",
-               sd_sdhc ? "SDHC/SDXC" : "SDSC");
-
-    /* Pausa post-init: garantiza que la tarjeta esté lista antes del primer CMD17 */
-    usleep(10000);
-
-    /* Leer sector 0 (MBR) */
-    if (sd_read_block(0, sd_sector_buf) != 0) {
-        xil_printf("FAIL read LBA0: CMD17 sin token de datos\r\n");
-        return 0;
-    }
-    xil_printf("PASS read LBA0: primeros 4 bytes = %02X %02X %02X %02X\r\n",
-               sd_sector_buf[0], sd_sector_buf[1],
-               sd_sector_buf[2], sd_sector_buf[3]);
-
-    /* Verificar firma MBR */
-    if (sd_sector_buf[510] == 0x55 && sd_sector_buf[511] == 0xAA) {
-        xil_printf("PASS MBR: firma 0x55AA encontrada\r\n");
-    } else {
-        xil_printf("WARN MBR: firma no encontrada "
-                   "(bytes 510-511 = %02X %02X) "
-                   "-- SD sin particionar o tarjeta en blanco\r\n",
-                   sd_sector_buf[510], sd_sector_buf[511]);
-    }
-
-    xil_printf("=== SD TEST OK ===\r\n\r\n");
-    return 1;
+    if (!sd_loopback_test()) return 0;
+    return (sd_init() == 0) ? 1 : 0;
 }
 
 static int sd_read_block_r(u32 lba, u8 *buf)
@@ -859,7 +762,6 @@ static void load_sprites(void)
     if (sd_read_block(SD_LBA_HDR, sd_sector_buf) != 0) return;
     u32 magic = ((u32)sd_sector_buf[0] << 24) | ((u32)sd_sector_buf[1] << 16) |
                 ((u32)sd_sector_buf[2] <<  8) |  (u32)sd_sector_buf[3];
-    sd_magic_read = magic;
     if (magic != SD_MAGIC) return;
     load_step = 1;
 
@@ -890,7 +792,6 @@ static void load_sprites(void)
         for (int i = 0; i < copy; i++) dst[loaded + i] = sd_sector_buf[i];
     }
     load_step = 5;
-    sprites_ok = 1;
 
     /* mode_select: 160×90 4bpp = 7200 B = 15 sectores */
     dst = DDR2_SPR_MSEL;
@@ -1431,23 +1332,8 @@ static void ddr2_sprite_defaults(void)
     for (i = 0; i < SPR_LOGO_W * SPR_LOGO_H / 8; i++)
         Xil_Out32(addr + (u32)(i * 4), 0x00000000u);
 
-    sprites_ok = 1;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
- * DIAG_STRIPES — test de 8 franjas iguales, cada una de FB_H/8 = 60 filas
- *   Esperado en monitor 640×480:
- *     franja 0 (azul)    : filas   0 –  59
- *     franja 1 (rojo)    : filas  60 – 119
- *     franja 2 (verde)   : filas 120 – 179
- *     franja 3 (amarillo): filas 180 – 239
- *     franja 4 (blanco)  : filas 240 – 299
- *     franja 5 (naranja) : filas 300 – 359
- *     franja 6 (gris)    : filas 360 – 419
- *     franja 7 (magenta) : filas 420 – 479
- *   Cada franja tiene un borde blanco de 2px arriba y 2px abajo como referencia.
- *   Si se ven < 8 franjas, reportar cuántas y cuántas filas ocupa la primera.
- * ═══════════════════════════════════════════════════════════════════════════ */
 /* ═══════════════════════════════════════════════════════════════════════════
  * SLAVE_LOOP — loop dedicado del esclavo (pantalla derecha, 2P).
  * Reconfigura SPI como esclavo, hace handshake y entra en bucle de render.
@@ -1646,8 +1532,6 @@ int main(void)
      * Evita que la pantalla anterior permanezca visible durante el arranque. */
     fb_clear(COL_BLACK);
 
-    xil_printf("\r\n=== PONG BOOT ===\r\n");
-
     /* GPIO0: botones (ch1 in) + SW (ch2 in) */
     XGpio_Initialize(&gpio0, XPAR_AXI_GPIO_0_BASEADDR);
     XGpio_SetDataDirection(&gpio0, 1, 0x3Fu);  /* 6 bits entrada: [5]=vsync [4:0]=botones */
@@ -1666,11 +1550,8 @@ int main(void)
     XSpi_IntrGlobalDisable(&spi);
 
     /* DDR2: esperar calibración MIG, verificar R/W y cargar sprites por defecto */
-    xil_printf("INFO: DDR2 init...\r\n");
     ddr2_init();
-    xil_printf("INFO: DDR2 selftest...\r\n");
     ddr2_selftest();
-    xil_printf("INFO: DDR2 sprites...\r\n");
     ddr2_sprite_defaults();
 
     /* Estado inicial */
