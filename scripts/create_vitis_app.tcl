@@ -35,7 +35,14 @@ puts "INFO: XSA    : $xsa_path"
 setws $ws_path
 
 # ── Plataforma ─────────────────────────────────────────────────────────────
-if {[catch {platform active pong_platform}]} {
+set plat_dir [file join $ws_path "pong_platform"]
+if {[file exists $plat_dir]} {
+    puts "INFO: Plataforma pong_platform ya existe, reutilizando."
+    # Vitis no la registra en su repo al arrancar el workspace; hay que
+    # agregarla explícitamente para que app create pueda encontrarla.
+    repo -add $plat_dir
+    platform active pong_platform
+} else {
     puts "INFO: Creando plataforma pong_platform..."
     platform create -name pong_platform \
         -hw     $xsa_path \
@@ -44,8 +51,6 @@ if {[catch {platform active pong_platform}]} {
     platform write
     platform generate -domains
     puts "INFO: Plataforma generada."
-} else {
-    puts "INFO: Plataforma pong_platform ya existe, reutilizando."
 }
 
 # ── Aplicación ─────────────────────────────────────────────────────────────
