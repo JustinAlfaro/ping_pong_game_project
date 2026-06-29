@@ -408,3 +408,11 @@ El diseño RTL (`src/hdl/`), el Block Design en Vivado, las constraints XDC y la
 > **Prompt:** "Sigue sin rebotar..."
 >
 > **Respuesta (resumen):** Diagnóstico progresivo vía LEDs: se determinó que el AXI Quad SPI en modo esclavo solo transmite fiablemente el byte 0 del TX FIFO. La solución fue codificar `pad[1].y >> 1` (rango 0–210, cabe en `uint8`) en el byte 0, y reconstruir en el maestro con `rx[0] << 1`.
+
+
+
+# Diagrama de bloques del proyecto Pong
+
+El siguiente diagrama resume la arquitectura general del proyecto: entradas físicas de la Nexys A7-100T, sincronización y antirrebote, SoC MicroBlaze V, bus AXI, framebuffer, pipeline VGA, salidas físicas, DDR2, MicroSD y comunicación SPI inter-FPGA.
+
+![Diagrama de bloques del proyecto Pong](docs/diagrama_bloques.png)
