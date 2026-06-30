@@ -992,7 +992,9 @@ pip install Pillow
 
 ## 20. Repositorio público
 
-`https://github.com/JustinAlfaro/ping_pong_game_project`
+[https://github.com/JustinAlfaro/ping_pong_game_project](https://github.com/JustinAlfaro/ping_pong_game_project)
+
+**Video explicativo:** [https://youtu.be/P1XJVjYdZMU](https://youtu.be/P1XJVjYdZMU)
 
 ---
 
